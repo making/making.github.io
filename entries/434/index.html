@@ -1,0 +1,292 @@
+<html>
+<head>
+    <title>BLOG.IK.AM</title>
+    <meta charset="UTF-8"/>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <link href="https://fonts.googleapis.com/earlyaccess/sawarabimincho.css" rel="stylesheet"/>
+    <style>
+        body {
+            font-size: small;
+            font-family: "Sawarabi Mincho";
+            margin: 20px;
+        }
+
+        a {
+            color: darkslategray;
+            text-decoration: none;
+        }
+
+        article {
+            border: darkgrey solid 1px;
+            border-radius: 10px;
+            padding: 0 10px 10px;
+        }
+
+        footer {
+            margin: 10px;
+        }
+
+        blockquote {
+            color: #464646;
+            font-style: italic;
+            border: darkgrey dotted 1px;
+            border-radius: 5px;
+            margin: 5px 0;
+            padding: 10px;
+        }
+
+        pre {
+            background-color: dimgray;
+            color: white;
+            padding: 5px;
+            border-radius: 5px;
+        }
+
+        h3:before {
+            content: "☕️ ";
+        }
+
+        h4:before {
+            content: "🍃 ";
+        }
+
+        h5:before {
+            content: "✈️️ ";
+        }
+
+        h6:before {
+            content: "☁️ ";
+        }
+
+        pre {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<h1>✏️ BLOG.IK.AM</h1>
+<p><a href="https://twitter.com/making">@making</a>'s memo</p>
+<body>
+<article>
+    <h2><a href="">Cloud Foundryのbuildpackを使ってDockerイメージを作成しKubernetesにデプロイ</a></h2>
+    <p>
+        Updated at <span>2017-08-21T05:53:23Z</span> by <span>Toshiaki Maki</span><br>
+        Created at <span>2017-08-21T05:32:40Z</span> by <span>Toshiaki Maki</span>
+    </p>
+    <div><p><strong>目次</strong></p>
+<!-- toc -->
+<ul>
+<li><a href="#buildpack-dockerfile">BuildpackとDockerfile</a></li>
+<li><a href="#cf-local-plugin">CF Local Plugin</a></li>
+<li><a href="#cf-local-">CF Localの利用</a><ul>
+<li><a href="#cloud-foundry-cli-">Cloud Foundry CLIのインストール</a></li>
+<li><a href="#cf-local-plugin-">CF Local Pluginのインストール</a></li>
+<li><a href="#-">コンテナイメージの作成</a></li>
+<li><a href="#docker-export">DockerイメージへExport</a></li>
+<li><a href="#k8s-">k8sへのデプロイ</a></li>
+<li><a href="#buildpack-">Buildpackの更新</a></li>
+</ul>
+</li>
+</ul>
+<!-- tocstop -->
+<h3 id="buildpack-dockerfile">BuildpackとDockerfile</h3>
+<p>Cloud Foundryの<a href="https://docs.cloudfoundry.org/buildpacks/">buildpack</a>は便利で、&quot;Source Code to Container Image&quot;を実現してくれます。</p>
+<p>Dockerを用いてアプリケーションをデプロイする場合は、一般的に</p>
+<ol>
+<li>ソースコード作成/修正</li>
+<li><code>Dockerfile</code>作成/修正</li>
+<li>Dockerイメージの作成</li>
+<li>Dockerイメージのデプロイ</li>
+<li>Dockerイメージを使ってアプリケーション(コンテナ)をデプロイ</li>
+</ol>
+<p>ですが、Cloud Foundryではbuildpackを使うことにより</p>
+<ol>
+<li>ソースコード作成/修正</li>
+<li><code>cf push</code>コマンドでアプリケーション(コンテナ)をデプロイ</li>
+</ol>
+<p>で完了します。</p>
+<p>Dockerの場合、通常<code>Dockerfile</code>を作ることになりますが、これをメンテナンスするということは、アプリケーションコードのメンテナンスの他に</p>
+<ul>
+<li>OSイメージ(opensshの脆弱性対応など)</li>
+<li>ランタイム/ミドルウェア(Javaの場合JDKやTomcat、PHPの場合Apache HTTPやmod_phpなど)</li>
+</ul>
+<p>のメンテナンスもしなくてはなりません。<code>Dockerfile</code>は自由度が高い反面、ケアすべき点も多いです。</p>
+<p>一方、buildpackではrootfsとして<a href="https://github.com/cloudfoundry/cflinuxfs2">cflinuxfs2</a>というUbuntu14.04の派生のイメージを使用します。定期的にセキュリティパッチがあてられています。
+また各言語ごとにランタイム/ミドルウェアがメンテナンスされており、原則としてCVE（Common Vulnerabilities and Exposures）公開後48時間以内にパッチがリリースされます。
+これにより、基本的にアプリケーションコードにのみ集中することができます。</p>
+<p>個人的には、アプリケーションデプロイの観点では<code>Dockerfile</code>の作成はあまりやりたい作業でありません。Buildpack方式のほうが好みです。</p>
+<h3 id="cf-local-plugin">CF Local Plugin</h3>
+<p><a href="https://github.com/sclevine/cflocal">CF Local Plugin</a>を使用することで、前述のbuildpackによるメリットをDockerイメージ作成にも適用できます。
+CF LocalはLaptop内で<code>cf push</code>をエミュレートするプラグインですが、DockerイメージへのExportに対応しています。</p>
+<p>これを使うことにより、Dockerを用いてアプリケーションをデプロイする場合も、</p>
+<ol>
+<li>ソースコード作成/修正</li>
+<li>CF LocalでDockerイメージの作成</li>
+<li>Dockerイメージのデプロイ</li>
+<li>Dockerイメージを使ってアプリケーション(コンテナ)をデプロイ</li>
+</ol>
+<p>になり、<code>Dockerfile</code>のメンテナンスから解放されます。</p>
+<p>これでBuildpackのメリットを活かしつつ、DockerイメージをKubernetesにデプロイするといったことが可能になります。</p>
+<h3 id="cf-local-">CF Localの利用</h3>
+<p>では実際にCF Localで&quot;Source Code to Docker Image&quot;を行い、アプリケーションをk8sにデプロイしてみます。</p>
+<h4 id="cloud-foundry-cli-">Cloud Foundry CLIのインストール</h4>
+<p>まずは<code>cf</code>コマンドが必要です。golangの実行可能バイナリなので、インストールは容易です。</p>
+<p>CF CLIのインストールは<a href="https://github.com/cloudfoundry/cli/releases">こちら</a>を参照してください。</p>
+<p>Macの場合は、</p>
+<pre><code>brew install cloudfoundry/tap/cf-cli
+</code></pre><p>でインストールできます。</p>
+<h4 id="cf-local-plugin-">CF Local Pluginのインストール</h4>
+<p>CF Local Pluginのバイナリは<a href="https://github.com/sclevine/cflocal/releases">こちら</a>からダウンロード可能です。</p>
+<p>Macの場合は、</p>
+<pre><code>curl -L -J -O https://github.com/sclevine/cflocal/releases/download/v0.13.0/cflocal-0.13.0-macos
+cf install-plugin cflocal-0.13.0-macos
+</code></pre><p>でインストールできます。</p>
+<h4 id="-">コンテナイメージの作成</h4>
+<p>今回は次の簡単なJavaアプリケーション(ただのサーブレット)を題材に使用します。
+<a href="https://github.com/making/hello-servlet">https://github.com/making/hello-servlet</a></p>
+<pre><code>git clone git@github.com:making/hello-servlet.git
+cd hello-servlet
+./mvnw package
+</code></pre><p>で<code>target/ROOT.war</code>ファイルが作成されます。</p>
+<p>その後、<code>cf local stage</code>コマンドでステージングを行い、コンテナイメージ(Droplet)を作成します。</p>
+<pre><code>cf local stage hello-servlet -p ./target/ROOT.war
+</code></pre><p>次のようなログが出力されます。JDKやTomcatがダウンロードされていることがわかります。またコンテナのメモリサイズ(デフォルトで1GB)に合わせて、JVMのメモリの設定が行われていることもわかります。メモリサイズは<code>-m</code>で変更可能です。</p>
+<pre><code>Buildpack: will detect                                                         
+[hello-servlet] 2017-08-21T04:32:48.695440393Z -----&gt; Java Buildpack Version: v3.17 | https://github.com/cloudfoundry/java-buildpack.git#87fb619
+[hello-servlet] 2017-08-21T04:32:51.033834076Z -----&gt; Downloading Open Jdk JRE 1.8.0_141 from https://java-buildpack.cloudfoundry.org/openjdk/trusty/x86_64/openjdk-1.8.0_141.tar.gz (2.1s)
+[hello-servlet] 2017-08-21T04:32:51.977072148Z        Expanding Open Jdk JRE to .java-buildpack/open_jdk_jre (0.9s)
+[hello-servlet] 2017-08-21T04:32:52.094011807Z -----&gt; Downloading Open JDK Like Memory Calculator 2.0.2_RELEASE from https://java-buildpack.cloudfoundry.org/memory-calculator/trusty/x86_64/memory-calculator-2.0.2_RELEASE.tar.gz (0.1s)
+[hello-servlet] 2017-08-21T04:32:52.117972916Z        Memory Settings: -Xss349K -Xmx681574K -XX:MaxMetaspaceSize=104857K -Xms681574K -XX:MetaspaceSize=104857K
+[hello-servlet] 2017-08-21T04:32:52.223085215Z -----&gt; Downloading Container Security Provider 1.8.0_RELEASE from https://java-buildpack.cloudfoundry.org/container-security-provider/container-security-provider-1.8.0_RELEASE.jar (0.1s)
+[hello-servlet] 2017-08-21T04:32:53.174939975Z -----&gt; Downloading Tomcat Instance 8.0.46 from https://java-buildpack.cloudfoundry.org/tomcat/tomcat-8.0.46.tar.gz (0.9s)
+[hello-servlet] 2017-08-21T04:32:53.278926558Z        Expanding Tomcat Instance to .java-buildpack/tomcat (0.1s)
+[hello-servlet] 2017-08-21T04:32:53.436115761Z -----&gt; Downloading Tomcat Lifecycle Support 2.5.0_RELEASE from https://java-buildpack.cloudfoundry.org/tomcat-lifecycle-support/tomcat-lifecycle-support-2.5.0_RELEASE.jar (0.1s)
+[hello-servlet] 2017-08-21T04:32:53.668302543Z -----&gt; Downloading Tomcat Logging Support 2.5.0_RELEASE from https://java-buildpack.cloudfoundry.org/tomcat-logging-support/tomcat-logging-support-2.5.0_RELEASE.jar (0.2s)
+[hello-servlet] 2017-08-21T04:32:53.747964428Z -----&gt; Downloading Tomcat Access Logging Support 2.5.0_RELEASE from https://java-buildpack.cloudfoundry.org/tomcat-access-logging-support/tomcat-access-logging-support-2.5.0_RELEASE.jar (0.0s)
+Successfully staged: hello-servlet
+</code></pre><p>Gifアニメも貼っておきます。</p>
+<p><img src="https://user-images.githubusercontent.com/106908/29503885-8d602192-8676-11e7-9a10-3b730cfaf689.gif" alt="cflocal"></p>
+<blockquote>
+<p>Java以外の場合、<code>-p</code>は不要で、カレントディレクトリからステージングが行われます。</p>
+</blockquote>
+<p>作成されたコンテナイメージは<code>cf local run</code>コマンドで実行できます。</p>
+<pre><code>$ cf local run hello-servlet
+Running hello-servlet on port 54921...                                         
+[hello-servlet] 2017-08-21T04:51:20.509802947Z [CONTAINER] org.apache.coyote.http11.Http11NioProtocol         INFO    Initializing ProtocolHandler [&quot;http-nio-8080&quot;]
+[hello-servlet] 2017-08-21T04:51:20.517556491Z [CONTAINER] org.apache.catalina.startup.Catalina               INFO    Initialization processed in 371 ms
+[hello-servlet] 2017-08-21T04:51:20.524758060Z [CONTAINER] org.apache.catalina.core.StandardService           INFO    Starting service Catalina
+[hello-servlet] 2017-08-21T04:51:20.525311765Z [CONTAINER] org.apache.catalina.core.StandardEngine            INFO    Starting Servlet Engine: Apache Tomcat/8.0.46
+[hello-servlet] 2017-08-21T04:51:20.539589930Z [CONTAINER] org.apache.catalina.startup.HostConfig             INFO    Deploying web application directory /home/vcap/app/.java-buildpack/tomcat/webapps/ROOT
+[hello-servlet] 2017-08-21T04:51:20.815559712Z [CONTAINER] org.apache.jasper.servlet.TldScanner               INFO    At least one JAR was scanned for TLDs yet contained no TLDs. Enable debug logging for this logger for a complete list of JARs that were scanned but no TLDs were found in them. Skipping unneeded JARs during scanning can improve startup time and JSP compilation time.
+[hello-servlet] 2017-08-21T04:51:20.869397279Z [CONTAINER] org.apache.catalina.startup.HostConfig             INFO    Deployment of web application directory /home/vcap/app/.java-buildpack/tomcat/webapps/ROOT has finished in 329 ms
+[hello-servlet] 2017-08-21T04:51:20.874792454Z [CONTAINER] org.apache.coyote.http11.Http11NioProtocol         INFO    Starting ProtocolHandler [&quot;http-nio-8080&quot;]
+[hello-servlet] 2017-08-21T04:51:20.880862674Z [CONTAINER] org.apache.tomcat.util.net.NioSelectorPool         INFO    Using a shared selector for servlet write/read
+[hello-servlet] 2017-08-21T04:51:20.889905003Z [CONTAINER] org.apache.catalina.startup.Catalina               INFO    Server startup in 371 ms
+</code></pre><p>この例ではlocalhostの54921ポートにアクセスすると、コンテナ内の8080ポートにフォワードされます。</p>
+<pre><code>$ curl localhost:54921
+
+██╗     █████╗ ███╗   ███╗    ███████╗████████╗██╗██╗     ██╗          █████╗ ████████╗    ██╗    ██╗ █████╗ ██████╗ 
+██║    ██╔══██╗████╗ ████║    ██╔════╝╚══██╔══╝██║██║     ██║         ██╔══██╗╚══██╔══╝    ██║    ██║██╔══██╗██╔══██╗
+██║    ███████║██╔████╔██║    ███████╗   ██║   ██║██║     ██║         ███████║   ██║       ██║ █╗ ██║███████║██████╔╝
+██║    ██╔══██║██║╚██╔╝██║    ╚════██║   ██║   ██║██║     ██║         ██╔══██║   ██║       ██║███╗██║██╔══██║██╔══██╗
+██║    ██║  ██║██║ ╚═╝ ██║    ███████║   ██║   ██║███████╗███████╗    ██║  ██║   ██║       ╚███╔███╔╝██║  ██║██║  ██║
+╚═╝    ╚═╝  ╚═╝╚═╝     ╚═╝    ╚══════╝   ╚═╝   ╚═╝╚══════╝╚══════╝    ╚═╝  ╚═╝   ╚═╝        ╚══╝╚══╝ ╚═╝  ╚═╝╚═╝  ╚═╝
+</code></pre><h4 id="docker-export">DockerイメージへExport</h4>
+<p>ここまででCloud FoundryのコンテナイメージフォーマットであるDropletファイルが作成されました。これを<code>cf local export</code>コマンドでDockerイメージのフォーマットにエクスポートできます。</p>
+<pre><code>cf local export hello-servlet -r making/hello-servlet
+</code></pre><p><code>making/hello-servlet</code>という名前のDockerイメージが作成できました。</p>
+<pre><code>$ docker images
+REPOSITORY                TAG                 IMAGE ID            CREATED              SIZE
+making/hello-servlet      latest              61d311f1bd06        3 seconds ago        951MB
+&lt;none&gt;                    &lt;none&gt;              74a5658980c7        About a minute ago   951MB
+cflocal                   latest              79e3268df4cf        5 minutes ago        953MB
+cloudfoundry/cflinuxfs2   latest              a7adacf72d2a        3 days ago           893MB
+</code></pre><p>もちろん、このイメージは<code>docker run</code>で実行可能です。</p>
+<pre><code>$ docker run -p 8080:8080 making/hello-servlet
+[CONTAINER] org.apache.coyote.http11.Http11NioProtocol         INFO    Initializing ProtocolHandler [&quot;http-nio-8080&quot;]
+[CONTAINER] org.apache.catalina.startup.Catalina               INFO    Initialization processed in 416 ms
+[CONTAINER] org.apache.catalina.core.StandardService           INFO    Starting service Catalina
+[CONTAINER] org.apache.catalina.core.StandardEngine            INFO    Starting Servlet Engine: Apache Tomcat/8.0.46
+[CONTAINER] org.apache.catalina.startup.HostConfig             INFO    Deploying web application directory /home/vcap/app/.java-buildpack/tomcat/webapps/ROOT
+[CONTAINER] org.apache.jasper.servlet.TldScanner               INFO    At least one JAR was scanned for TLDs yet contained no TLDs. Enable debug logging for this logger for a complete list of JARs that were scanned but no TLDs were found in them. Skipping unneeded JARs during scanning can improve startup time and JSP compilation time.
+[CONTAINER] org.apache.catalina.startup.HostConfig             INFO    Deployment of web application directory /home/vcap/app/.java-buildpack/tomcat/webapps/ROOT has finished in 410 ms
+[CONTAINER] org.apache.coyote.http11.Http11NioProtocol         INFO    Starting ProtocolHandler [&quot;http-nio-8080&quot;]
+[CONTAINER] org.apache.tomcat.util.net.NioSelectorPool         INFO    Using a shared selector for servlet write/read
+[CONTAINER] org.apache.catalina.startup.Catalina               INFO    Server startup in 458 ms
+</code></pre><pre><code>$ curl localhost:8080
+
+██╗     █████╗ ███╗   ███╗    ███████╗████████╗██╗██╗     ██╗          █████╗ ████████╗    ██╗    ██╗ █████╗ ██████╗ 
+██║    ██╔══██╗████╗ ████║    ██╔════╝╚══██╔══╝██║██║     ██║         ██╔══██╗╚══██╔══╝    ██║    ██║██╔══██╗██╔══██╗
+██║    ███████║██╔████╔██║    ███████╗   ██║   ██║██║     ██║         ███████║   ██║       ██║ █╗ ██║███████║██████╔╝
+██║    ██╔══██║██║╚██╔╝██║    ╚════██║   ██║   ██║██║     ██║         ██╔══██║   ██║       ██║███╗██║██╔══██║██╔══██╗
+██║    ██║  ██║██║ ╚═╝ ██║    ███████║   ██║   ██║███████╗███████╗    ██║  ██║   ██║       ╚███╔███╔╝██║  ██║██║  ██║
+╚═╝    ╚═╝  ╚═╝╚═╝     ╚═╝    ╚══════╝   ╚═╝   ╚═╝╚══════╝╚══════╝    ╚═╝  ╚═╝   ╚═╝        ╚══╝╚══╝ ╚═╝  ╚═╝╚═╝  ╚═╝
+</code></pre><p>そして、<code>docker push</code>でDocker Registryへデプロイします。</p>
+<pre><code>docker push making/hello-servlet
+</code></pre><h4 id="k8s-">k8sへのデプロイ</h4>
+<p>Docker Registryにデプロイした後は、普通にk8sにデプロイできます。</p>
+<pre><code>$ kubectl run hello-servlet --image=making/hello-servlet --port=8080
+deployment &quot;hello-servlet&quot; created
+
+$ kubectl expose deployment hello-servlet --type=NodePort
+service &quot;hello-servlet&quot; exposed
+
+$ kubectl get service hello-servlet -o wide
+NAME            CLUSTER-IP   EXTERNAL-IP   PORT(S)          AGE       SELECTOR
+hello-servlet   10.0.0.61    &lt;nodes&gt;       8080:32271/TCP   20s       run=hello-servlet
+
+$ curl `minikube ip`:32271
+
+██╗     █████╗ ███╗   ███╗    ███████╗████████╗██╗██╗     ██╗          █████╗ ████████╗    ██╗    ██╗ █████╗ ██████╗
+██║    ██╔══██╗████╗ ████║    ██╔════╝╚══██╔══╝██║██║     ██║         ██╔══██╗╚══██╔══╝    ██║    ██║██╔══██╗██╔══██╗
+██║    ███████║██╔████╔██║    ███████╗   ██║   ██║██║     ██║         ███████║   ██║       ██║ █╗ ██║███████║██████╔╝
+██║    ██╔══██║██║╚██╔╝██║    ╚════██║   ██║   ██║██║     ██║         ██╔══██║   ██║       ██║███╗██║██╔══██║██╔══██╗
+██║    ██║  ██║██║ ╚═╝ ██║    ███████║   ██║   ██║███████╗███████╗    ██║  ██║   ██║       ╚███╔███╔╝██║  ██║██║  ██║
+╚═╝    ╚═╝  ╚═╝╚═╝     ╚═╝    ╚══════╝   ╚═╝   ╚═╝╚══════╝╚══════╝    ╚═╝  ╚═╝   ╚═╝        ╚══╝╚══╝ ╚═╝  ╚═╝╚═╝  ╚═╝
+</code></pre><h4 id="buildpack-">Buildpackの更新</h4>
+<p>デフォルトのBuildpackのバージョンはCF Local Pluginに依存するため、Buildpackのバージョンを更新したい場合は、<code>-b</code>で明示する必要があります。
+Java Buildpackのバージョンを、執筆時点で最新の<a href="https://github.com/cloudfoundry/java-buildpack/releases/tag/v4.5">4.5</a>にあげてみます。</p>
+<pre><code>$ cf local stage hello-servlet -p ./target/ROOT.war -b https://github.com/cloudfoundry/java-buildpack.git#v4.5
+Buildpack: https://github.com/cloudfoundry/java-buildpack.git#v4.5             
+[hello-servlet] 2017-08-21T05:23:44.725841336Z -----&gt; Java Buildpack v4.5 | https://github.com/cloudfoundry/java-buildpack.git#36205c5
+[hello-servlet] 2017-08-21T05:23:45.153024223Z -----&gt; Downloading Jvmkill Agent 1.10.0_RELEASE from https://java-buildpack.cloudfoundry.org/jvmkill/trusty/x86_64/jvmkill-1.10.0_RELEASE.so (0.2s)
+[hello-servlet] 2017-08-21T05:23:45.201490613Z -----&gt; Downloading Open Jdk JRE 1.8.0_141 from https://java-buildpack.cloudfoundry.org/openjdk/trusty/x86_64/openjdk-1.8.0_141.tar.gz (found in cache)
+[hello-servlet] 2017-08-21T05:23:46.099868077Z        Expanding Open Jdk JRE to .java-buildpack/open_jdk_jre (0.8s)
+[hello-servlet] 2017-08-21T05:23:46.937437172Z -----&gt; Downloading Open JDK Like Memory Calculator 3.9.0_RELEASE from https://java-buildpack.cloudfoundry.org/memory-calculator/trusty/x86_64/memory-calculator-3.9.0_RELEASE.tar.gz (0.8s)
+[hello-servlet] 2017-08-21T05:23:47.235578582Z        Loaded Classes: 9742, Threads: 300
+[hello-servlet] 2017-08-21T05:23:47.359764715Z -----&gt; Downloading Client Certificate Mapper 1.2.0_RELEASE from https://java-buildpack.cloudfoundry.org/client-certificate-mapper/client-certificate-mapper-1.2.0_RELEASE.jar (0.1s)
+[hello-servlet] 2017-08-21T05:23:47.416043793Z -----&gt; Downloading Container Security Provider 1.8.0_RELEASE from https://java-buildpack.cloudfoundry.org/container-security-provider/container-security-provider-1.8.0_RELEASE.jar (found in cache)
+[hello-servlet] 2017-08-21T05:23:48.042413872Z -----&gt; Downloading Tomcat Instance 8.5.20 from https://java-buildpack.cloudfoundry.org/tomcat/tomcat-8.5.20.tar.gz (0.6s)
+[hello-servlet] 2017-08-21T05:23:48.153498196Z        Expanding Tomcat Instance to .java-buildpack/tomcat (0.1s)
+[hello-servlet] 2017-08-21T05:23:48.211211569Z -----&gt; Downloading Tomcat Access Logging Support 3.0.0_RELEASE from https://java-buildpack.cloudfoundry.org/tomcat-access-logging-support/tomcat-access-logging-support-3.0.0_RELEASE.jar (found in cache)
+[hello-servlet] 2017-08-21T05:23:48.253126051Z -----&gt; Downloading Tomcat Lifecycle Support 3.0.0_RELEASE from https://java-buildpack.cloudfoundry.org/tomcat-lifecycle-support/tomcat-lifecycle-support-3.0.0_RELEASE.jar (found in cache)
+[hello-servlet] 2017-08-21T05:23:48.300813949Z -----&gt; Downloading Tomcat Logging Support 3.0.0_RELEASE from https://java-buildpack.cloudfoundry.org/tomcat-logging-support/tomcat-logging-support-3.0.0_RELEASE.jar (found in cache)
+Successfully staged: hello-servlet
+</code></pre><p>これでソースコードや設定ファイルを変更することなく、イメージが更新され、Tomcatが8.5系に上がりました。また、JVMのMemory Calculatorの仕様も<a href="https://www.cloudfoundry.org/just-released-java-buildpack-4-0/">変わりました</a>。
+メモリ設定をBuildpackにお任せできて楽です。k8sにJavaアプリケーションをデプロイする場合も、Buildpackの恩恵に与ることができます。</p>
+<pre><code>$ cf local run hello-servlet
+Running hello-servlet on port 55383...                                         
+[hello-servlet] 2017-08-21T05:25:36.151338888Z JVM Memory Configuration: -XX:CompressedClassSpaceSize=15326K -Xss1M -Xmx394118K -XX:MaxDirectMemorySize=10M -XX:MaxMetaspaceSize=75931K -XX:ReservedCodeCacheSize=240M
+[hello-servlet] 2017-08-21T05:25:36.663399060Z [CONTAINER] org.apache.coyote.http11.Http11NioProtocol         INFO    Initializing ProtocolHandler [&quot;http-nio-8080&quot;]
+[hello-servlet] 2017-08-21T05:25:36.674031978Z [CONTAINER] org.apache.catalina.startup.Catalina               INFO    Initialization processed in 373 ms
+[hello-servlet] 2017-08-21T05:25:36.681052927Z [CONTAINER] org.apache.catalina.core.StandardService           INFO    Starting service [Catalina]
+[hello-servlet] 2017-08-21T05:25:36.681435114Z [CONTAINER] org.apache.catalina.core.StandardEngine            INFO    Starting Servlet Engine: Apache Tomcat/8.5.20
+[hello-servlet] 2017-08-21T05:25:36.709458734Z [CONTAINER] org.apache.catalina.startup.HostConfig             INFO    Deploying web application directory [/home/vcap/app/.java-buildpack/tomcat/webapps/ROOT]
+[hello-servlet] 2017-08-21T05:25:37.030274533Z [CONTAINER] org.apache.jasper.servlet.TldScanner               INFO    At least one JAR was scanned for TLDs yet contained no TLDs. Enable debug logging for this logger for a complete list of JARs that were scanned but no TLDs were found in them. Skipping unneeded JARs during scanning can improve startup time and JSP compilation time.
+[hello-servlet] 2017-08-21T05:25:37.097099849Z [CONTAINER] org.apache.catalina.startup.HostConfig             INFO    Deployment of web application directory [/home/vcap/app/.java-buildpack/tomcat/webapps/ROOT] has finished in [387] ms
+[hello-servlet] 2017-08-21T05:25:37.101279358Z [CONTAINER] org.apache.coyote.http11.Http11NioProtocol         INFO    Starting ProtocolHandler [&quot;http-nio-8080&quot;]
+[hello-servlet] 2017-08-21T05:25:37.110166410Z [CONTAINER] org.apache.tomcat.util.net.NioSelectorPool         INFO    Using a shared selector for servlet write/read
+[hello-servlet] 2017-08-21T05:25:37.126321558Z [CONTAINER] org.apache.catalina.startup.Catalina               INFO    Server startup in 451 ms
+</code></pre><hr>
+<p>CF Local PluginはもともとはCloud Foundryを使った開発において、ローカル環境でのイテレーションを円滑に行うためのプラグインですが、
+これを使って、<code>Dockerfile</code>を作ることなくBuildpackからDockerイメージを作成し、k8sにデプロイできることを確認しました。</p>
+<p>CF Local Pluginはまだ、<a href="https://github.com/sclevine">Stephen Levine</a>さんの個人プロジェクト扱いですが、Cloud Foundry Summit 2017のKeynoteで紹介されていたので、
+Cloud Foundry公式プロジェクトになることを期待しています。</p>
+</div>
+</article>
+<footer>
+    <a href="https://blog.ik.am">BLOG.IK.AM</a> — &copy; 2010-2017 <a href="https://twitter.com/making">Toshiaki
+    Maki</a>
+</footer>
+</body>
+</html>

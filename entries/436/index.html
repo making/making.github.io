@@ -1,0 +1,683 @@
+<html>
+<head>
+    <title>BLOG.IK.AM</title>
+    <meta charset="UTF-8"/>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <link href="https://fonts.googleapis.com/earlyaccess/sawarabimincho.css" rel="stylesheet"/>
+    <style>
+        body {
+            font-size: small;
+            font-family: "Sawarabi Mincho";
+            margin: 20px;
+        }
+
+        a {
+            color: darkslategray;
+            text-decoration: none;
+        }
+
+        article {
+            border: darkgrey solid 1px;
+            border-radius: 10px;
+            padding: 0 10px 10px;
+        }
+
+        footer {
+            margin: 10px;
+        }
+
+        blockquote {
+            color: #464646;
+            font-style: italic;
+            border: darkgrey dotted 1px;
+            border-radius: 5px;
+            margin: 5px 0;
+            padding: 10px;
+        }
+
+        pre {
+            background-color: dimgray;
+            color: white;
+            padding: 5px;
+            border-radius: 5px;
+        }
+
+        h3:before {
+            content: "☕️ ";
+        }
+
+        h4:before {
+            content: "🍃 ";
+        }
+
+        h5:before {
+            content: "✈️️ ";
+        }
+
+        h6:before {
+            content: "☁️ ";
+        }
+
+        pre {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<h1>✏️ BLOG.IK.AM</h1>
+<p><a href="https://twitter.com/making">@making</a>'s memo</p>
+<body>
+<article>
+    <h2><a href="">Kubo(Kubernetes on BOSH)をAWSにデプロイ</a></h2>
+    <p>
+        Updated at <span>2017-09-30T20:28:25Z</span> by <span>Toshiaki Maki</span><br>
+        Created at <span>2017-09-30T20:01:16Z</span> by <span>Toshiaki Maki</span>
+    </p>
+    <div><p><strong>目次</strong></p>
+<!-- toc -->
+<ul>
+<li><a href="#kubo-">Kuboとは</a></li>
+<li><a href="#vpc-">VPCの作成</a></li>
+<li><a href="#aws-">AWS環境構築</a></li>
+<li><a href="#bosh-director-">BOSH Directorのデプロイ</a></li>
+<li><a href="#kubo-">Kuboのルーティングの設定</a></li>
+<li><a href="#kubo-">Kuboのデプロイ</a></li>
+<li><a href="#kubernetes-">Kubernetesへのアクセス</a></li>
+<li><a href="#-">アプリケーションのデプロイ</a></li>
+<li><a href="#kubo-">Kuboのカスタマイズ</a></li>
+<li><a href="#kubo-start-stop">Kuboのstart/stop</a></li>
+<li><a href="#kubo-">Kuboの削除</a></li>
+</ul>
+<!-- tocstop -->
+<h3 id="kubo-">Kuboとは</h3>
+<p>KuboはKubernetesの<a href="https://bosh.io">BOSH</a> Releaseです。BOSHを利用して、Kubernetesのデプロイ、運用を行うことができます。</p>
+<ul>
+<li><a href="https://docs-kubo.cfapps.io/">https://docs-kubo.cfapps.io/</a></li>
+<li><a href="https://pivotal.io/jp/partners/kubo">https://pivotal.io/jp/partners/kubo</a></li>
+<li><a href="https://github.com/cloudfoundry-incubator/kubo-deployment">https://github.com/cloudfoundry-incubator/kubo-deployment</a></li>
+</ul>
+<p>Cloud Foundry Foundationで共同開発されています。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/ed1bb4ed-dfdd-ed0c-60f5-700b0fd23e61.png" alt="image.png"></p>
+<p>BOSHはCloud Foundryの運用において長く使用されているツールです。</p>
+<p>BOSHもKubernetesもGoogleのBorgを起源としており、Kubernetesがコンテナの管理をするのに対して、BOSHは同じように、その下のVMの管理を行います。</p>
+<p>BOSHを使用することにより、</p>
+<ul>
+<li>マルチクラウド環境(GCP, AWS, Azure, vSphere, OpenStack)にデプロイできる (クラスタを分散できるわけではありません)</li>
+<li>Day 1 Operation(k8sクラスタのインストール、デプロイ)だけでなく、Day 2 Operation(k8sクラスタ自体の自動復旧、スケールアウト、Multi-AZ対応、ローリングアップデート)に対応できる</li>
+</ul>
+<p>などのメリットがあり、他のKubernetesデプロイツールとの違いになっています。</p>
+<p>GKEやACSのようなManaged Kubernetesが使えない場合や、パブリッククラウドとオンプレミスで同じ環境を使いたい場合の魅力的な選択肢になるかと思います。</p>
+<p>本記事の執筆時点ではKubo(v0.7.0)は</p>
+<ul>
+<li>GCP</li>
+<li>vSphere</li>
+<li>OpenStack</li>
+<li>AWS</li>
+</ul>
+<p>に対応しています。</p>
+<p>以下はAWSにKuboをデプロイした時のメモです。</p>
+<p>使用したcommitは</p>
+<ul>
+<li><a href="https://github.com/cloudfoundry-incubator/kubo-deployment/tree/7ac26aaee48300f4e69b538c2c75a0488b884cf2"><code>kubo-deployment＠7ac26aaee48300f4e69b538c2c75a0488b884cf2</code></a>
+です。</li>
+</ul>
+<p>基本的には<a href="https://docs-kubo.cfapps.io">ドキュメント</a>の通りですが、一部やりやすいように変更しています.</p>
+<p>KuboをAWSにデプロイした場合のデフォルト構成は最終的に次の図のようになります。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/ffe3fc18-ead4-9389-1455-9d35bbd3903b.png" alt="image.png"></p>
+<h3 id="vpc-">VPCの作成</h3>
+<p><a href="https://docs-kubo.cfapps.io/installing/aws/">https://docs-kubo.cfapps.io/installing/aws/</a></p>
+<p>AWSにBOSHをデプロイするための下準備をします。</p>
+<p>まずはVPC作成。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/c08df3a9-10b0-d5f6-8014-afe878a889d2.png" width="60%" /></p>
+<p>「DNS 解決」が有効になっていることを確認してください。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/e4b5f61e-1bc1-ffc9-220d-4e16caa4fc26.png" width="60%" /></p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/325b1f0c-360e-3930-a338-77eb75ff9368.png" width="60%" /></p>
+<p>次にキーペア作成。ここでは<code>deployer</code>と言う名前にしておきます。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/bac213c0-c9e0-959b-9ead-d2321ba4f7dc.png" width="60%" /></p>
+<p>現状の図は次の通り。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/7198325b-8fd7-7827-095b-c17d6561b6a3.png" alt="image.png"></p>
+<h3 id="aws-">AWS環境構築</h3>
+<p><code>deployer.pem</code>を手元の環境の<code>~/kubo-workspace/</code>に配置し、</p>
+<pre><code>mkdir ~/kubo-workspace/
+mv ~/deployer.pem ~/kubo-workspace/
+chmod 600 ~/kubo-workspace/deployer.pem
+</code></pre><p>terraformを使って、AWS環境をセットアップします。</p>
+<p>AWSの情報を環境変数に設定します。</p>
+<pre><code>export prefix=makikubo-
+
+export AWS_ACCESS_KEY_ID=xxxxxx
+export AWS_SECRET_ACCESS_KEY=xxxxxx
+export vpc_id=xxxxxx
+export key_name=deployer # name of private key to use on Kubo VMs
+export private_key_filename=&quot;~/kubo-workspace/${key_name}.pem&quot; # private key to use on Kubo VMs
+export region=ap-northeast-1 # region that you will deploy Kubo in
+export zone=ap-northeast-1a # zone that you will deploy Kubo in
+export public_subnet_ip_prefix=&quot;10.0.1&quot; # subnet that will be used for bastion VM, NAT Gateway and load balancers
+export private_subnet_ip_prefix=&quot;10.0.2&quot; # subnet that will be used for Kubo VMs and BOSH director
+export kubo_terraform_state=~/kubo-workspace/terraform.tfstate
+</code></pre><p>terraformを実行します。</p>
+<pre><code>wget https://storage.googleapis.com/kubo-public/kubo-deployment-latest.tgz
+tar -xvf kubo-deployment-latest.tgz
+cd kubo-deployment/docs/user-guide/platforms/aws
+
+terraform init
+
+terraform apply \
+  -var region=&quot;${region}&quot; \
+  -var zone=&quot;${zone}&quot; \
+  -var vpc_id=&quot;${vpc_id}&quot; \
+  -var prefix=&quot;${prefix}&quot; \
+  -var public_subnet_ip_prefix=&quot;${public_subnet_ip_prefix}&quot; \
+  -var private_subnet_ip_prefix=&quot;${private_subnet_ip_prefix}&quot; \
+  -var private_key_filename=&quot;${private_key_filename}&quot; \
+  -var key_name=&quot;${key_name}&quot; \
+  -state=${kubo_terraform_state}
+</code></pre><p>publicとprivateの2つのサブネットが作成されます。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/2b1d2b5b-376f-6dc8-d45f-3d4090e74f82.png" alt="image.png"></p>
+<p>それぞれのルートテーブルが作成されます。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/95f85ff6-98a4-c540-2a76-c431a27639b6.png" alt="image.png"></p>
+<p>publicサブネットのルートテーブルはインターネットゲートウェイに繋がっています。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/2bd6a4ad-552a-58e8-319a-a961aeeacbc0.png" alt="image.png"></p>
+<p>privateサブネットのルーテテーブルはNATゲートウェイに繋がっています。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/d89e26b6-d18e-a382-4006-52eaf1ffa3fc.png" alt="image.png"></p>
+<p>Bastion(踏み台)サーバーのインスタンスが立ち上がります。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/f743905d-1bd1-2a11-eca5-2663f054f553.png" alt="image.png"></p>
+<p>Worker VM向けのセキュリティグループが作成されます。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/d54549ea-d249-8c6a-e897-15a631f27859.png" alt="image.png"></p>
+<p>現状の図は次の通り。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/11198601-b436-2497-a9ad-8c47060d4c30.png" alt="image.png"></p>
+<h3 id="bosh-director-">BOSH Directorのデプロイ</h3>
+<p>次にBOSH(Director VM)をデプロイします。</p>
+<p><a href="https://docs-kubo.cfapps.io/installing/aws/deploying-bosh-aws/">https://docs-kubo.cfapps.io/installing/aws/deploying-bosh-aws/</a></p>
+<p>これ以降はBastion(踏み台)サーバーで作業します。</p>
+<p>次のコマンドでログインできます。</p>
+<pre><code>export kubo_terraform_state=~/kubo-workspace/terraform.tfstate
+cd $(dirname $kubo_terraform_state)
+ssh -i ~/kubo-workspace/deployer.pem ubuntu@$(terraform output bosh-bastion-ip)
+</code></pre><p>手順自動化のため、<code>awscli</code>と<code>jq</code>をインストールしておきます。</p>
+<pre><code>sudo apt-get install awscli jq
+</code></pre><p>AWSの設定を行います。</p>
+<pre><code>$ aws configure
+AWS Access Key ID [None]: ****
+AWS Secret Access Key [None]: ****
+Default region name [None]: ap-northeast-1
+Default output format [None]:
+</code></pre><p>まずはKuboをデプロイするための設定ファイルテンプレートを生成します。</p>
+<pre><code>cd /share/kubo-deployment
+
+export kubo_envs=~/kubo-env
+export kubo_env_name=kubo
+export kubo_env_path=&quot;${kubo_envs}/${kubo_env_name}&quot;
+
+mkdir -p &quot;${kubo_envs}&quot;
+./bin/generate_env_config &quot;${kubo_envs}&quot; &quot;${kubo_env_name}&quot; aws
+</code></pre><p>Kubo用のIAMユーザーを作成します。</p>
+<pre><code>aws iam create-user --user-name &quot;kubo-user&quot;
+
+policy=`cat &lt;&lt;EOF
+{
+    &quot;Version&quot;: &quot;2012-10-17&quot;,
+    &quot;Statement&quot;: [
+        {
+            &quot;Action&quot;: [
+                &quot;ec2:AssociateAddress&quot;,
+                &quot;ec2:AttachVolume&quot;,
+                &quot;ec2:CreateVolume&quot;,
+                &quot;ec2:DeleteSnapshot&quot;,
+                &quot;ec2:DeleteVolume&quot;,
+                &quot;ec2:DescribeAddresses&quot;,
+                &quot;ec2:DescribeImages&quot;,
+                &quot;ec2:DescribeInstances&quot;,
+                &quot;ec2:DescribeRegions&quot;,
+                &quot;ec2:DescribeSecurityGroups&quot;,
+                &quot;ec2:DescribeSnapshots&quot;,
+                &quot;ec2:DescribeSubnets&quot;,
+                &quot;ec2:DescribeVolumes&quot;,
+                &quot;ec2:DetachVolume&quot;,
+                &quot;ec2:CreateSnapshot&quot;,
+                &quot;ec2:CreateTags&quot;,
+                &quot;ec2:RunInstances&quot;,
+                &quot;ec2:TerminateInstances&quot;,
+                &quot;ec2:RegisterImage&quot;,
+                &quot;ec2:DeregisterImage&quot;,
+                &quot;elasticloadbalancing:*&quot;
+            ],
+            &quot;Effect&quot;: &quot;Allow&quot;,
+            &quot;Resource&quot;: &quot;*&quot;
+        },
+        {
+            &quot;Effect&quot;: &quot;Allow&quot;,
+            &quot;Action&quot;: &quot;iam:PassRole&quot;,
+            &quot;Resource&quot;: &quot;$(aws iam get-user --user-name &quot;kubo-user&quot; | jq -r &quot;.User.Arn&quot; | sed &#39;s|user/kubo-user|role/*kubo*|&#39;)&quot;
+        }
+    ]
+}
+EOF`
+
+aws iam put-user-policy --user-name &quot;kubo-user&quot; \
+    --policy-name &quot;kubo-policy&quot; \
+    --policy-document &quot;$policy&quot;
+
+aws iam create-access-key --user-name &quot;kubo-user&quot; &gt; access-key.json
+</code></pre><p>作成したIAMユーザー情報を設定ファイルに反映します。</p>
+<pre><code>sed -i &quot;s/access_key_id:/access_key_id: $(jq -r .AccessKey.AccessKeyId access-key.json)/&quot; ${kubo_env_path}/director-secrets.yml
+sed -i &quot;s/secret_access_key:/secret_access_key: $(jq -r .AccessKey.SecretAccessKey access-key.json)/&quot; ${kubo_env_path}/director-secrets.yml
+</code></pre><p>いよいよBOSH(Director VM)をデプロイします。</p>
+<pre><code>./bin/deploy_bosh &quot;${kubo_env_path}&quot; ~/deployer.pem
+</code></pre><p>デプロイが完了すると<code>bosh/0</code>という名前のVMが立ち上がります。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/1c1a9251-9dbe-8371-15c8-d0d0c16fc80c.png" alt="image.png"></p>
+<p>プロダクション向けの設定で<code>m4.xlarge</code>が使われており、検証用途にはちょっと大きいため、
+次のvm typeを変更するoperation file(yamlのpatchファイル)を作成します。</p>
+<pre><code>mkdir ${HOME}/custom-ops-files
+cat &lt;&lt;EOF &gt; ${HOME}/custom-ops-files/director-size-aws.yml
+- type: replace
+  path: /resource_pools/name=vms/cloud_properties/instance_type
+  value: t2.small
+EOF
+</code></pre><p><code>deploy_bosh</code>スクリプトでは<code>bosh create-env</code>の追加オプションを環境変数<code>BOSH_EXTRA_OPS</code>で設定できます。
+これを設定して再度デプロイします。</p>
+<pre><code>export BOSH_EXTRA_OPS=&quot;--ops-file ${HOME}/custom-ops-files/director-size-aws.yml &quot;
+
+/share/kubo-deployment/bin/deploy_bosh &quot;${kubo_env_path}&quot; ~/deployer.pem
+</code></pre><p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/8ef32418-33bd-6e93-c100-982e1ca9bfc2.png" alt="image.png"></p>
+<p>BOSH Directorの情報を環境変数に設定します。</p>
+<pre><code>BOSH_ENV=~/kubo-env/kubo . /share/kubo-deployment/bin/set_bosh_environment
+</code></pre><p>BOSH Directorにログインします。</p>
+<pre><code>$ bosh-cli env
+Using environment &#39;10.0.2.252&#39; as client &#39;bosh_admin&#39;
+
+Name      makikubo-bosh                         
+UUID      56abcae9-2fca-4a97-a9c9-93fe02236e83  
+Version   263.0.0 (00000000)                    
+CPI       aws_cpi                               
+Features  compiled_package_cache: disabled      
+          config_server: enabled                
+          dns: enabled                          
+          snapshots: disabled                   
+User      bosh_admin                            
+
+Succeeded
+
+$ bosh-cli log-in
+Successfully authenticated with UAA
+
+Succeeded
+</code></pre><p>現状の図は次の通り。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/7669d3a6-6ad7-edc3-ffdc-f76d0f7679c9.png" alt="image.png"></p>
+<h3 id="kubo-">Kuboのルーティングの設定</h3>
+<p><a href="https://docs-kubo.cfapps.io/installing/aws/routing-aws/">https://docs-kubo.cfapps.io/installing/aws/routing-aws/</a></p>
+<p>Kuboへルーティング(LB)をIaaSのものにするか、Cloud Foundryのものにするかを設定できます。
+ここではIaaSのもの(ELB)を使用します。</p>
+<pre><code>export kubo_env_name=kubo
+cd /share/kubo-deployment/docs/user-guide/routing/aws
+export state_dir=~/kubo-env/${kubo_env_name}
+export kubo_terraform_state=${state_dir}/terraform.tfstate
+export AWS_ACCESS_KEY_ID=`jq -r .AccessKey.AccessKeyId /share/kubo-deployment/access-key.json `
+export AWS_SECRET_ACCESS_KEY=`jq -r .AccessKey.SecretAccessKey /share/kubo-deployment/access-key.json`
+
+terraform init
+
+terraform apply \
+   -var region=${region} \
+   -var vpc_id=${vpc_id} \
+   -var node_security_group_id=${default_security_groups} \
+   -var public_subnet_id=${public_subnet_id} \
+   -var prefix=${prefix} \
+   -state=${kubo_terraform_state}
+</code></pre><p>Master VM向けのセキュリティグループが作成されます。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/48f60ee0-da8e-0211-965f-5c52230dba1c.png" alt="image.png"></p>
+<p>Master API向けのELBが作成されます。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/4b198c3e-64ad-06ae-897e-f3075bbc8f0e.png" alt="image.png"></p>
+<p>設定ファイルに反映します。</p>
+<pre><code>export master_target_pool=$(terraform output -state=${kubo_terraform_state} kubo_master_target_pool) 
+export kubernetes_master_host=$(terraform output -state=${kubo_terraform_state} master_lb_ip_address) 
+
+. /share/kubo-deployment/docs/user-guide/platforms/aws/setup_helpers
+set_iaas_routing &quot;${state_dir}/director.yml&quot;
+</code></pre><p>現状の図は次の通り。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/b1d58f08-dd07-53e9-7cdc-7ecb905892f7.png" alt="image.png"></p>
+<h3 id="kubo-">Kuboのデプロイ</h3>
+<p><a href="https://docs-kubo.cfapps.io/installing/deploying-kubo/">https://docs-kubo.cfapps.io/installing/deploying-kubo/</a></p>
+<p>いよいよKuboのデプロイです。</p>
+<pre><code>/share/kubo-deployment/bin/deploy_k8s ~/kubo-env/kubo kubo
+</code></pre><p>デプロイが完了したら、<code>bosh-cli</code>で確認します。</p>
+<pre><code>$ bosh-cli vms
+Using environment &#39;10.0.2.252&#39; as client &#39;bosh_admin&#39;
+
+Task 6. Done
+
+Deployment &#39;kubo&#39;
+
+Instance                                     Process State  AZ  IPs        VM CID               VM Type  
+etcd/5a1ee552-f94d-4665-81ac-2deb1ee3ab0b    running        z1  10.0.2.5   i-01d38a8c93b919da9  common   
+etcd/ba5d02c0-b80e-4092-976b-35a9f9718689    running        z1  10.0.2.6   i-09135355fb58155c5  common   
+etcd/d4f49a10-6ba8-486b-9377-23fd91320b03    running        z1  10.0.2.4   i-0a989f01671b9eadc  common   
+master/1b3e37b7-0641-43f2-81b9-5712085341ad  running        z1  10.0.2.8   i-0fa89c32ca7cfe3d4  master   
+master/ca143c0a-aeb3-44a1-b77a-466c4e3a74eb  running        z1  10.0.2.7   i-070d791c1067fef9a  master   
+worker/0663c9ee-80d2-44ce-b425-c4f4255d1340  running        z1  10.0.2.10  i-0f9c6b24a259c38d0  worker   
+worker/0deaac05-1c0d-4fdd-b9c8-8bc72cbedd4d  running        z1  10.0.2.9   i-0191c6eeb9bac4893  worker   
+worker/7efb6037-6e55-460d-8971-e569c2d903cd  running        z1  10.0.2.11  i-079f6d7f1d1407ee6  worker   
+
+8 vms
+
+Succeeded
+</code></pre><p>etcdが3台、masterが2台、workerが3台デプロイされます。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/aa97e766-33b0-77e6-5616-6c3724356462.png" alt="vms"></p>
+<p>また使用されているBOSH Releaseは次の通りです。</p>
+<pre><code>$ bosh-cli releases
+Using environment &#39;10.0.2.252&#39; as client &#39;bosh_admin&#39;
+
+Name       Version       Commit Hash  
+docker     28.0.1*       8096ad43+    
+kubo       0.8.0-dev.7*  529e961      
+kubo-etcd  2*            aa57fc9      
+
+(*) Currently deployed
+(+) Uncommitted changes
+
+3 releases
+
+Succeeded
+</code></pre><p>現状の図は次の通り。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/ffe3fc18-ead4-9389-1455-9d35bbd3903b.png" alt="image.png"></p>
+<h3 id="kubernetes-">Kubernetesへのアクセス</h3>
+<p>デプロイしたKubernetesへアクセスしましょう。</p>
+<pre><code>/share/kubo-deployment/bin/set_kubeconfig ~/kubo-env/kubo kubo
+</code></pre><p><code>~/.kube/config</code>が更新されました。これで<code>kubectl</code>を使ってアクセス可能です。</p>
+<pre><code>$ kubectl version
+Client Version: version.Info{Major:&quot;1&quot;, Minor:&quot;7&quot;, GitVersion:&quot;v1.7.6&quot;, GitCommit:&quot;4bc5e7f9a6c25dc4c03d4d656f2cefd21540e28c&quot;, GitTreeState:&quot;clean&quot;, BuildDate:&quot;2017-09-14T06:55:55Z&quot;, GoVersion:&quot;go1.8.3&quot;, Compiler:&quot;gc&quot;, Platform:&quot;linux/amd64&quot;}
+Server Version: version.Info{Major:&quot;1&quot;, Minor:&quot;7&quot;, GitVersion:&quot;v1.7.5&quot;, GitCommit:&quot;17d7182a7ccbb167074be7a87f0a68bd00d58d97&quot;, GitTreeState:&quot;clean&quot;, BuildDate:&quot;2017-08-31T08:56:23Z&quot;, GoVersion:&quot;go1.8.3&quot;, Compiler:&quot;gc&quot;, Platform:&quot;linux/amd64&quot;}
+
+$ kubectl get pods --namespace=kube-system
+NAME                                    READY     STATUS    RESTARTS   AGE
+heapster-932399794-5jskb                1/1       Running   0          8m
+kube-dns-3329716278-k301f               3/3       Running   0          8m
+kubernetes-dashboard-1367211859-kdgxb   1/1       Running   0          8m
+monitoring-influxdb-564852376-sqr9s     1/1       Running   0          8m
+
+$ kubectl get node -o wide
+NAME                                           STATUS    AGE       VERSION   EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION
+ip-10-0-2-10.ap-northeast-1.compute.internal   Ready     11m       v1.7.5    &lt;none&gt;        Ubuntu 14.04.5 LTS   4.4.0-83-generic
+ip-10-0-2-11.ap-northeast-1.compute.internal   Ready     9m        v1.7.5    &lt;none&gt;        Ubuntu 14.04.5 LTS   4.4.0-83-generic
+ip-10-0-2-9.ap-northeast-1.compute.internal    Ready     13m       v1.7.5    &lt;none&gt;        Ubuntu 14.04.5 LTS   4.4.0-83-generic
+</code></pre><h3 id="-">アプリケーションのデプロイ</h3>
+<p>簡単なアプリケーションをデプロイします。次の<code>hello-tomcat.yml</code>を作成します。</p>
+<pre><code class="lang-yaml">kind: Service
+apiVersion: v1
+metadata:
+  name: hello-tomcat-service
+spec:
+  selector:
+    run: hello-tomcat
+  ports:
+  - protocol: TCP
+    port: 8080
+    targetPort: 8080
+  type: LoadBalancer
+---
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: hello-tomcat-deployment
+spec:
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        run: hello-tomcat
+    spec:
+      containers:
+      - name: hello-tomcat
+        image: making/hello-tomcat:v1
+        ports:
+        - containerPort: 8080
+</code></pre>
+<p>デプロイします。</p>
+<pre><code>kubectl apply -f hello-tomcat.yml
+</code></pre><p>しばらくするとデプロイ完了します。</p>
+<pre><code>$ kubectl get pods
+NAME                                       READY     STATUS    RESTARTS   AGE
+hello-tomcat-deployment-1598259564-m9n0f   1/1       Running   0          5m
+hello-tomcat-deployment-1598259564-wrqmd   1/1       Running   0          5m
+
+$ kubectl get service hello-tomcat-service -o wide
+NAME                   CLUSTER-IP      EXTERNAL-IP                                                                    PORT(S)          AGE       SELECTOR
+hello-tomcat-service   10.100.200.94   abb39b003a46f11e7bffe06e0da5997d-1028762931.ap-northeast-1.elb.amazonaws.com   8080:32742/TCP   5m        run=hello-tomcat
+</code></pre><p>ServiceがELBに紐付いていることがわかります。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/f0a12860-e0e7-ec2a-6f0f-ddd728dc2376.png" alt="image.png"></p>
+<p>アクセスしてみます。</p>
+<pre><code>$ curl http://abb39b003a46f11e7bffe06e0da5997d-1028762931.ap-northeast-1.elb.amazonaws.com:8080/
+&lt;html&gt;
+&lt;body&gt;
+&lt;h2&gt;Hello World!&lt;/h2&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+
+
+$ curl http://abb39b003a46f11e7bffe06e0da5997d-1028762931.ap-northeast-1.elb.amazonaws.com:8080/env
+HELLO_TOMCAT_SERVICE_SERVICE_HOST: 10.100.200.94
+PATH: /usr/local/tomcat/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+KUBERNETES_PORT: tcp://10.100.200.1:443
+JAVA_HOME: /docker-java-home/jre
+CA_CERTIFICATES_JAVA_VERSION: 20161107~bpo8+1
+KUBERNETES_SERVICE_HOST: 10.100.200.1
+LANG: C.UTF-8
+TOMCAT_MAJOR: 8
+TOMCAT_VERSION: 8.5.15
+LD_LIBRARY_PATH: /usr/local/tomcat/native-jni-lib
+OPENSSL_VERSION: 1.1.0e-2
+HELLO_TOMCAT_SERVICE_PORT_8080_TCP_PROTO: tcp
+TOMCAT_NATIVE_LIBDIR: /usr/local/tomcat/native-jni-lib
+PWD: /usr/local/tomcat
+JAVA_VERSION: 8u131
+KUBERNETES_PORT_443_TCP: tcp://10.100.200.1:443
+TOMCAT_TGZ_URL: https://www.apache.org/dyn/closer.cgi?action=download&amp;filename=tomcat/tomcat-8/v8.5.15/bin/apache-tomcat-8.5.15.tar.gz
+KUBERNETES_PORT_443_TCP_ADDR: 10.100.200.1
+HELLO_TOMCAT_SERVICE_PORT_8080_TCP_ADDR: 10.100.200.94
+CATALINA_HOME: /usr/local/tomcat
+HELLO_TOMCAT_SERVICE_PORT: tcp://10.100.200.94:8080
+KUBERNETES_PORT_443_TCP_PROTO: tcp
+HELLO_TOMCAT_SERVICE_SERVICE_PORT: 8080
+HELLO_TOMCAT_SERVICE_PORT_8080_TCP_PORT: 8080
+KUBERNETES_SERVICE_PORT: 443
+HOSTNAME: hello-tomcat-deployment-1598259564-wrqmd
+JAVA_DEBIAN_VERSION: 8u131-b11-1~bpo8+1
+TOMCAT_ASC_URL: https://www.apache.org/dist/tomcat/tomcat-8/v8.5.15/bin/apache-tomcat-8.5.15.tar.gz.asc
+KUBERNETES_PORT_443_TCP_PORT: 443
+KUBERNETES_SERVICE_PORT_HTTPS: 443
+HELLO_TOMCAT_SERVICE_PORT_8080_TCP: tcp://10.100.200.94:8080
+GPG_KEYS: 05AB33110949707C93A279E3D3EFE6B686867BA6 07E48665A34DCAFAE522E5E6266191C37C037D42 47309207D818FFD8DCD3F83F1931D684307A10A5 541FBE7D8F78B25E055DDEE13C370389288584E7 61B832AC2F1C5A90F0F9B00A1C506407564C17A3 713DA88BE50911535FE716F5208B0AB1D63011C7 79F7026C690BAA50B92CD8B66A3AD3F4F22C4FED 9BA44C2621385CB966EBA586F72C284D731FABEE A27677289986DB50844682F8ACB77FC2E86E29AC A9C5DF4D22E99998D9875A5110C01C5A2F6059E7 DCFD35E0BF8CA7344752DE8B6FB21E8933C60243 F3A04C595DB5B6A5F1ECA43E3B7BBB100D811BBE F7DA48BB64BCB84ECBA7EE6935CD23C10D498E23
+HOME: /root
+</code></pre><p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/01b1c541-bcc5-6e15-3ce8-e24c16a7d870.png" alt="image.png"></p>
+<p>ロードバランスされることも確認できます。</p>
+<pre><code>$ for i in `seq 1 10`;do curl -s http://abb39b003a46f11e7bffe06e0da5997d-1028762931.ap-northeast-1.elb.amazonaws.com:8080/env | grep HOSTNAME;done
+HOSTNAME: hello-tomcat-deployment-1598259564-wrqmd
+HOSTNAME: hello-tomcat-deployment-1598259564-wrqmd
+HOSTNAME: hello-tomcat-deployment-1598259564-m9n0f
+HOSTNAME: hello-tomcat-deployment-1598259564-wrqmd
+HOSTNAME: hello-tomcat-deployment-1598259564-m9n0f
+HOSTNAME: hello-tomcat-deployment-1598259564-wrqmd
+HOSTNAME: hello-tomcat-deployment-1598259564-wrqmd
+HOSTNAME: hello-tomcat-deployment-1598259564-wrqmd
+HOSTNAME: hello-tomcat-deployment-1598259564-m9n0f
+HOSTNAME: hello-tomcat-deployment-1598259564-m9n0f
+</code></pre><h3 id="kubo-">Kuboのカスタマイズ</h3>
+<p><a href="https://docs-kubo.cfapps.io/installing/customizing-kubo/">https://docs-kubo.cfapps.io/installing/customizing-kubo/</a></p>
+<p><code>deploy_k8s</code>ではデフォルトの設定が強制されます。
+vm typeの変更など、細かい設定変更はBOSH CLIで直接行えます。</p>
+<p>BOSH CLIによるデプロイに必要なCloud ConigとKuboのマニフェストファイルを次のコマンドで生成します。</p>
+<pre><code>cd /share/kubo-deployment
+./bin/generate_cloud_config ~/kubo-env/kubo &gt; ~/kubo-env/kubo/cloud-config.yml
+./bin/generate_kubo_manifest ~/kubo-env/kubo kubo dummy &gt; ~/kubo-env/kubo/kubo-manifest.yml
+</code></pre><p>まずは利用可能な(小さい)VMタイプを追加するためのCloud Configのoperation fileを作成します。</p>
+<pre><code>cat &lt;&lt;EOF &gt; ${HOME}/custom-ops-files/add-small-vm-types.yml
+- type: replace
+  path: /vm_types/-
+  value:
+    cloud_properties:
+      ephemeral_disk:
+        size: 25000
+      instance_type: t2.micro
+    name: common-small
+
+- type: replace
+  path: /vm_types/-
+  value:
+    cloud_properties:
+      elbs:
+      - makikubo-kubo-api
+      ephemeral_disk:
+        size: 25000
+      iam_instance_profile: makikubo-kubo-master
+      instance_type: t2.micro
+    name: master-small
+
+- type: replace
+  path: /vm_types/-
+  value:
+    cloud_properties:
+      ephemeral_disk:
+        size: 50000
+      iam_instance_profile: makikubo-kubo-worker
+      instance_type: m4.large
+    name: worker-small
+EOF
+</code></pre><p><code>-o</code>でこのファイルを指定してCloud Configを更新します。</p>
+<pre><code>bosh-cli update-cloud-config ~/kubo-env/kubo/cloud-config.yml \
+                             -o ~/custom-ops-files/add-small-vm-types.yml
+</code></pre><p>実行結果。</p>
+<pre><code>$ bosh-cli update-cloud-config ~/kubo-env/kubo/cloud-config.yml \
+&gt;                              -o ~/custom-ops-files/add-small-vm-types.yml 
+Using environment &#39;10.0.2.252&#39; as client &#39;bosh_admin&#39;
+
+  vm_types:
++ - cloud_properties:
++     ephemeral_disk:
++       size: 25000
++     instance_type: t2.micro
++   name: common-small
++ - cloud_properties:
++     elbs:
++     - makikubo-kubo-api
++     ephemeral_disk:
++       size: 25000
++     iam_instance_profile: makikubo-kubo-master
++     instance_type: t2.micro
++   name: master-small
++ - cloud_properties:
++     ephemeral_disk:
++       size: 50000
++     iam_instance_profile: makikubo-kubo-worker
++     instance_type: m4.large
++   name: worker-small
+
+Continue? [yN]: y
+
+Succeeded
+</code></pre><p>次にKuboで小さいVM Typeを使用するようなoperation file(<code>use-small-vm-types.yml</code>)を作成します。</p>
+<pre><code>cat &lt;&lt;EOF &gt; ${HOME}/custom-ops-files/use-small-vm-types.yml
+- type: replace
+  path: /instance_groups/name=etcd/vm_type
+  value: common-small
+
+- type: replace
+  path: /instance_groups/name=master/vm_type
+  value: master-small
+
+- type: replace
+  path: /instance_groups/name=worker/vm_type
+  value: worker-small
+EOF
+</code></pre><p>次にetcd, master, workerを全て1インスタンスに減らすためのoperation file(<code>scale-to-one.yml</code>)を作成します。</p>
+<pre><code>cat &lt;&lt;EOF &gt; ${HOME}/custom-ops-files/scale-to-one.yml
+- type: replace
+  path: /instance_groups/name=etcd/instances
+  value: 1
+
+- type: replace
+  path: /instance_groups/name=master/instances
+  value: 1
+
+- type: replace
+  path: /instance_groups/name=worker/instances
+  value: 1
+EOF
+</code></pre><p><code>use-small-vm-types.yml</code>と<code>scale-to-one.yml</code>を追加して<code>bosh-cli deploy</code>します。</p>
+<pre><code>bosh-cli deploy -d kubo ~/kubo-env/kubo/kubo-manifest.yml \
+                -o ~/custom-ops-files/use-small-vm-types.yml \
+                -o ~/custom-ops-files/scale-to-one.yml
+</code></pre><p>実行結果。</p>
+<pre><code>$ bosh-cli deploy -d kubo ~/kubo-env/kubo/kubo-manifest.yml \
+&gt;                 -o ~/custom-ops-files/use-small-vm-types.yml \
+&gt;                 -o ~/custom-ops-files/scale-to-one.yml 
+Using environment &#39;10.0.2.252&#39; as client &#39;bosh_admin&#39;
+
+Using deployment &#39;kubo&#39;
+
+Release &#39;kubo-etcd/2&#39; already exists.
+
+Release &#39;docker/28.0.1&#39; already exists.
+
+  vm_types:
++ - cloud_properties:
++     ephemeral_disk:
++       size: 25000
++     instance_type: t2.micro
++   name: common-small
++ - cloud_properties:
++     elbs:
++     - makikubo-kubo-api
++     ephemeral_disk:
++       size: 25000
++     iam_instance_profile: makikubo-kubo-master
++     instance_type: t2.micro
++   name: master-small
++ - cloud_properties:
++     ephemeral_disk:
++       size: 50000
++     iam_instance_profile: makikubo-kubo-worker
++     instance_type: m4.large
++   name: worker-small
+
+  instance_groups:
+  - name: etcd
+-   instances: 3
++   instances: 1
+-   vm_type: common
++   vm_type: common-small
+  - name: master
+-   instances: 2
++   instances: 1
+-   vm_type: master
++   vm_type: master-small
+  - name: worker
+-   instances: 3
++   instances: 1
+-   vm_type: worker
++   vm_type: worker-small
+
+Continue? [yN]: y
+</code></pre><p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/41b896be-4207-d9b7-f674-ca18c6fe8921.png" alt="a"></p>
+<blockquote>
+<p>スケールダウンすると<code>hello-tomcat</code>がいなくなり、ELBのゴミが残っていました。。この辺の挙動はよくわかっていません。</p>
+</blockquote>
+<p>使われなくなったDisk(EBS)はしばらく残っています。これを削除したい場合は、</p>
+<pre><code>bosh-cli -n clean-up --all
+</code></pre><h3 id="kubo-start-stop">Kuboのstart/stop</h3>
+<p>VMを削除して止めたい場合は、</p>
+<pre><code>bosh-cli -d kubo stop --hard
+</code></pre><p>再開したい場合は、</p>
+<pre><code>bosh-cli -d kubo start
+</code></pre><blockquote>
+<p><code>kube-system</code> sytem以外のpodはなくなる？</p>
+</blockquote>
+<h3 id="kubo-">Kuboの削除</h3>
+<pre><code>bosh-cli -d kubo delete-deployment
+</code></pre></div>
+</article>
+<footer>
+    <a href="https://blog.ik.am">BLOG.IK.AM</a> — &copy; 2010-2017 <a href="https://twitter.com/making">Toshiaki
+    Maki</a>
+</footer>
+</body>
+</html>

@@ -1,0 +1,494 @@
+<html>
+<head>
+    <title>BLOG.IK.AM</title>
+    <meta charset="UTF-8"/>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <link href="https://fonts.googleapis.com/earlyaccess/sawarabimincho.css" rel="stylesheet"/>
+    <style>
+        body {
+            font-size: small;
+            font-family: "Sawarabi Mincho";
+            margin: 20px;
+        }
+
+        a {
+            color: darkslategray;
+            text-decoration: none;
+        }
+
+        article {
+            border: darkgrey solid 1px;
+            border-radius: 10px;
+            padding: 0 10px 10px;
+        }
+
+        footer {
+            margin: 10px;
+        }
+
+        blockquote {
+            color: #464646;
+            font-style: italic;
+            border: darkgrey dotted 1px;
+            border-radius: 5px;
+            margin: 5px 0;
+            padding: 10px;
+        }
+
+        pre {
+            background-color: dimgray;
+            color: white;
+            padding: 5px;
+            border-radius: 5px;
+        }
+
+        h3:before {
+            content: "☕️ ";
+        }
+
+        h4:before {
+            content: "🍃 ";
+        }
+
+        h5:before {
+            content: "✈️️ ";
+        }
+
+        h6:before {
+            content: "☁️ ";
+        }
+
+        pre {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<h1>✏️ BLOG.IK.AM</h1>
+<p><a href="https://twitter.com/making">@making</a>'s memo</p>
+<body>
+<article>
+    <h2><a href="">bosh-bootloaderでAWSまたはGCPにBOSH環境を簡単に構築する</a></h2>
+    <p>
+        Updated at <span>2017-09-04T14:58:42Z</span> by <span>Toshiaki Maki</span><br>
+        Created at <span>2017-07-30T15:06:18Z</span> by <span>Toshiaki Maki</span>
+    </p>
+    <div><p><strong>目次</strong></p>
+<!-- toc -->
+<ul>
+<li><a href="#bosh-bootloader-">bosh-bootloaderとは</a></li>
+<li><a href="#-">ツールのインストール</a><ul>
+<li><a href="#bosh-bootloader-">bosh-bootloaderのインストール</a></li>
+<li><a href="#bosh-cli-">BOSH CLIのインストール</a></li>
+<li><a href="#terraform-">terraformのインストール</a></li>
+</ul>
+</li>
+<li><a href="#aws-bosh-bootloader">AWSでbosh-bootloader</a><ul>
+<li><a href="#-bbl-iam-"><code>bbl</code>用のIAM作成</a></li>
+<li><a href="#-bbl-"><code>bbl</code>実行</a></li>
+<li><a href="#bosh-cli-">BOSH CLIに設定を反映</a></li>
+<li><a href="#-">ロードバランサの作成</a><ul>
+<li><a href="#concourse-lb">Concourse用途のLB</a></li>
+<li><a href="#cloud-foundry-lb">Cloud Foundry用途のLB</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#gcp-bosh-bootloader">GCPでbosh-bootloader</a></li>
+<li><a href="#-">環境の削除</a></li>
+<li><a href="#bosh-bootloader-iaas-">bosh-bootloaderでIaaS設定のみ行う</a><ul>
+<li><a href="#-bosh-create-env-director-"><code>bosh create-env</code>でDirectorのセットアップ</a></li>
+<li><a href="#uaa-">UAAの追加</a></li>
+<li><a href="#credhub-">CredHubの追加</a></li>
+</ul>
+</li>
+<li><a href="#-">参考資料</a></li>
+</ul>
+<!-- tocstop -->
+<h3 id="bosh-bootloader-">bosh-bootloaderとは</h3>
+<p><a href="https://bosh.io">BOSH</a>を使ったソフトウェアのデプロイは基本的に以下の手順になります。</p>
+<ol>
+<li>IaaS環境セットアップ</li>
+<li>BOSH Directorのデプロイ(<code>bosh-init</code>, CLI v2の場合は<code>bosh create-env</code>)</li>
+<li>対象のソフトウェア/クラスタのデプロイ (<code>bosh deploy</code>)</li>
+</ol>
+<p>このうち、1.と2.は初回だけ行えば良いのですが、ここをまとめてやってくれるのが<a href="https://github.com/cloudfoundry/bosh-bootloader">bosh-bootloader</a>です。</p>
+<p>bosh-bootloaderは現時点で</p>
+<ul>
+<li>AWS</li>
+<li>GCP</li>
+</ul>
+<p>に対応しています。</p>
+<blockquote>
+<p><a href="https://github.com/cloudfoundry/bosh-bootloader/issues/77">OpenStack</a>, <a href="https://github.com/cloudfoundry/bosh-bootloader/issues/126">Azure</a>対応のissueは存在しています。</p>
+</blockquote>
+<h3 id="-">ツールのインストール</h3>
+<p>bosh-bootloaderを使うには</p>
+<ul>
+<li><code>bbl</code></li>
+<li><code>bosh</code> v2</li>
+<li><code>terraform</code></li>
+</ul>
+<p>のインストールが必要です。</p>
+<h4 id="bosh-bootloader-">bosh-bootloaderのインストール</h4>
+<pre><code>wget https://github.com/cloudfoundry/bosh-bootloader/releases/download/v4.0.0/bbl-v4.0.0_osx
+install bbl-v4.0.0_osx /usr/local/bin/bbl
+</code></pre><p>本稿で扱う<code>bbl</code>のバージョンは<code>4.0.0</code>です。</p>
+<pre><code>$ bbl version
+bbl 4.0.0 (darwin/amd64)
+</code></pre><h4 id="bosh-cli-">BOSH CLIのインストール</h4>
+<pre><code>wget https://s3.amazonaws.com/bosh-cli-artifacts/bosh-cli-2.0.28-darwin-amd64
+install bosh-cli-2.0.28-darwin-amd64 /usr/local/bin/bosh
+</code></pre><p>本稿で扱う<code>bosh</code>のバージョンは<code>2.0.28</code>です。(<code>2.0.24</code>以上が必須です)</p>
+<pre><code>$ bosh -v
+version 2.0.28-cb77557-2017-07-11T23:04:15Z
+
+Succeeded
+</code></pre><h4 id="terraform-">terraformのインストール</h4>
+<pre><code>wget https://releases.hashicorp.com/terraform/0.9.11/terraform_0.9.11_darwin_amd64.zip
+unzip terraform_0.9.11_darwin_amd64.zip 
+install terraform /usr/local/bin/terraform
+</code></pre><p>本稿で扱う<code>bosh</code>のバージョンは<code>0.9.11</code>です。(<code>0.9.7</code>以上が必須です)</p>
+<pre><code>$ terraform -v
+Terraform v0.9.11
+</code></pre><h3 id="aws-bosh-bootloader">AWSでbosh-bootloader</h3>
+<p>基本的は<a href="https://github.com/cloudfoundry/bosh-bootloader/blob/master/docs/getting-started-aws.md">getting-started-aws.md</a>の通り。</p>
+<h4 id="-bbl-iam-"><code>bbl</code>用のIAM作成</h4>
+<pre><code>mkdir ~/bbl
+cd ~/bbl
+
+policy=`cat &lt;&lt;EOF
+{
+    &quot;Version&quot;: &quot;2012-10-17&quot;,
+    &quot;Statement&quot;: [
+        {
+            &quot;Effect&quot;: &quot;Allow&quot;,
+            &quot;Action&quot;: [
+                &quot;ec2:*&quot;,
+                &quot;cloudformation:*&quot;,
+                &quot;elasticloadbalancing:*&quot;,
+                &quot;route53:*&quot;,
+                &quot;iam:*&quot;,
+                &quot;logs:*&quot;,
+                &quot;kms:*&quot;
+            ],
+            &quot;Resource&quot;: [
+                &quot;*&quot;
+            ]
+        }
+    ]
+}
+EOF`
+
+aws iam create-user --user-name &quot;bbl-user&quot;
+aws iam put-user-policy --user-name &quot;bbl-user&quot; \
+    --policy-name &quot;bbl-policy&quot; \
+    --policy-document &quot;$policy&quot;
+aws iam create-access-key --user-name &quot;bbl-user&quot; &gt; access-key.json
+</code></pre><h4 id="-bbl-"><code>bbl</code>実行</h4>
+<pre><code>export BBL_IAAS=aws
+export BBL_AWS_ACCESS_KEY_ID=`jq -r .AccessKey.AccessKeyId access-key.json `
+export BBL_AWS_SECRET_ACCESS_KEY=`jq -r .AccessKey.SecretAccessKey access-key.json `
+export BBL_AWS_REGION=ap-northeast-1
+
+bbl up
+</code></pre><p>ログは</p>
+<pre><code>step: checking if keypair &quot;keypair-bbl-env-vanern-2017-07-30t09-13z&quot; exists
+step: creating keypair
+step: validating whether stack needs to be migrated
+step: generating terraform template
+step: applied terraform template
+step: creating bosh director
+Deployment manifest: &#39;/var/folders/15/fww24j3d7pg9sz196cxv_6xm4nvlh8/T/806931787/manifest.yml&#39;
+Deployment state: &#39;/var/folders/15/fww24j3d7pg9sz196cxv_6xm4nvlh8/T/806931787/state.json&#39;
+
+Started validating
+  Downloading release &#39;bosh&#39;... Finished (00:00:43)
+  Validating release &#39;bosh&#39;... Finished (00:00:00)
+  Downloading release &#39;bosh-aws-cpi&#39;... Finished (00:00:20)
+  Validating release &#39;bosh-aws-cpi&#39;... Finished (00:00:00)
+  Downloading release &#39;os-conf&#39;... Finished (00:00:01)
+  Validating release &#39;os-conf&#39;... Finished (00:00:00)
+  Validating cpi release... Finished (00:00:00)
+  Validating deployment manifest... Finished (00:00:00)
+  Downloading stemcell... Finished (00:00:06)
+  Validating stemcell... Finished (00:00:00)
+Finished validating (00:01:13)
+
+Started installing CPI
+  Compiling package &#39;ruby_aws_cpi/c6ba8a1e1b53b94ee9caf13d2d749c40cecfa038&#39;... Finished (00:02:15)
+  Compiling package &#39;bosh_aws_cpi/137cfc70652337ff1d3fca795e6d9ddd6e7e68dd&#39;... Finished (00:00:02)
+  Installing packages... Finished (00:00:00)
+  Rendering job templates... Finished (00:00:00)
+  Installing job &#39;aws_cpi&#39;... Finished (00:00:00)
+Finished installing CPI (00:02:19)
+
+Starting registry... Finished (00:00:00)
+Uploading stemcell &#39;bosh-aws-xen-hvm-ubuntu-trusty-go_agent/3421.9&#39;... Finished (00:00:16)
+
+Started deploying
+  Creating VM for instance &#39;bosh/0&#39; from stemcell &#39;ami-b8faefdf light&#39;... Finished (00:00:29)
+  Waiting for the agent on VM &#39;i-065d2b9cfcbcd14d2&#39; to be ready... Finished (00:00:35)
+  Creating disk... Finished (00:00:13)
+  Attaching disk &#39;vol-08de572130113912e&#39; to VM &#39;i-065d2b9cfcbcd14d2&#39;... Finished (00:00:20)
+  Rendering job templates... Finished (00:00:04)
+  Compiling package &#39;ruby/c1086875b047d112e46756dcb63d8f19e63b3ac4&#39;... Skipped [Package already compiled] (00:00:01)
+  Compiling package &#39;mysql/b7e73acc0bfe05f1c6cbfd97bf92d39b0d3155d5&#39;... Skipped [Package already compiled] (00:00:00)
+  Compiling package &#39;libpq/661f5817afe24fa2f18946d2757bff63246b1d0d&#39;... Skipped [Package already compiled] (00:00:00)
+  Compiling package &#39;ruby_aws_cpi/c6ba8a1e1b53b94ee9caf13d2d749c40cecfa038&#39;... Finished (00:01:56)
+  Compiling package &#39;nats/63ae42eb73527625307ff522fb402832b407321d&#39;... Skipped [Package already compiled] (00:00:01)
+  Compiling package &#39;registry/d81865cf0ad85fd79cb19aeb565bf622f2a17a83&#39;... Skipped [Package already compiled] (00:00:03)
+  Compiling package &#39;director/e9cd35786422e87bd0571a4423bc947e50fe97e6&#39;... Skipped [Package already compiled] (00:00:03)
+  Compiling package &#39;davcli/5f08f8d5ab3addd0e11171f739f072b107b30b8c&#39;... Skipped [Package already compiled] (00:00:00)
+  Compiling package &#39;postgres-9.4/ded764a075ae7513d4718b7cf200642fdbf81ae4&#39;... Skipped [Package already compiled] (00:00:01)
+  Compiling package &#39;health_monitor/e9317b2ad349f019e69261558afa587537f06f25&#39;... Skipped [Package already compiled] (00:00:03)
+  Compiling package &#39;s3cli/bb1c1976d221fdadf13a6bc873896cd5e2433580&#39;... Skipped [Package already compiled] (00:00:00)
+  Compiling package &#39;bosh_aws_cpi/137cfc70652337ff1d3fca795e6d9ddd6e7e68dd&#39;... Finished (00:00:02)
+  Compiling package &#39;verify_multidigest/8fc5d654cebad7725c34bb08b3f60b912db7094a&#39;... Skipped [Package already compiled] (00:00:00)
+  Compiling package &#39;nginx/2ec2f63293bf6f544e95969bf5e5242bc226a800&#39;... Skipped [Package already compiled] (00:00:00)
+  Compiling package &#39;postgres/3b1089109c074984577a0bac1b38018d7a2890ef&#39;... Skipped [Package already compiled] (00:00:00)
+  Updating instance &#39;bosh/0&#39;... Finished (00:00:15)
+  Waiting for instance &#39;bosh/0&#39; to be running... Finished (00:00:10)
+  Running the post-start scripts &#39;bosh/0&#39;... Finished (00:00:00)
+Finished deploying (00:04:31)
+
+Stopping registry... Finished (00:00:00)
+Cleaning up rendered CPI jobs... Finished (00:00:00)
+
+Succeeded
+step: created bosh director
+step: generating cloud config
+step: applying cloud config
+</code></pre><ul>
+<li>VPC</li>
+<li>Subnets</li>
+<li>Route Tables</li>
+<li>Security Groups</li>
+<li>EIP</li>
+<li>EC2 (NAT VM / BOSH VM)</li>
+</ul>
+<p>が自動で作成されます。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/13d7a969-ab1b-0ecb-806a-7b117d96fbd0.png" alt="image.png"></p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/c65a7185-85ca-46b7-72d6-3652168290a4.png" alt="image.png"></p>
+<h4 id="bosh-cli-">BOSH CLIに設定を反映</h4>
+<pre><code>export BOSH_ENVIRONMENT=`bbl director-address`
+export BOSH_CLIENT=`bbl director-username`
+export BOSH_CLIENT_SECRET=`bbl director-password`
+export BOSH_CA_CERT=`bbl director-ca-cert`
+
+bosh log-in
+</code></pre><p>これでBOSHのセットアップ(手順の1., 2.)が完了です。</p>
+<p>Directorには、<code>bbl</code>で作られた環境情報がCloud Configに設定済みです</p>
+<pre><code>$ bosh cloud-config
+</code></pre><p><a href="https://gist.github.com/making/c51b368e9d47db510d7484beca60b20e">出力結果</a></p>
+<p>最新のStemcellをアップロードしておきます。</p>
+<pre><code>bosh upload-stemcell https://bosh.io/d/stemcells/bosh-aws-xen-hvm-ubuntu-trusty-go_agent
+</code></pre><h4 id="-">ロードバランサの作成</h4>
+<p><code>bbl</code>でIaaSのロードバランサを作成することもできます。</p>
+<p>LBの種類は</p>
+<ul>
+<li><code>concourse</code></li>
+<li><code>cf</code></li>
+</ul>
+<p>の2種類がサポートされています。</p>
+<p>前者はConcourseで利用される想定のロードバランサで、HTTP(80), HTTPS(4443)で受付けて8080にフォワード, TCP(2222)で受付けて2222にフォワードするLB一つ作成されます。Concourse以外でも、8080でHTTPを受付ているアプリケーションをデプロイしたい場合には利用可能です。</p>
+<p>後者はCloud Foundryで利用される想定のロードバランサで、GoRouter, TCP Router, SSH Proxy用のLB3つができます。</p>
+<h5 id="concourse-lb">Concourse用途のLB</h5>
+<pre><code>bbl create-lbs --type concourse --key &lt;YOUR-key.pem&gt; --cert &lt;YOUR-cert.pem&gt;
+</code></pre><p>Concourse用途のロードバランサ(ELB)のリスナーは次のような設定になります。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/96a9e897-135f-0792-0e6c-75054fe581dd.png" alt="image.png"></p>
+<p>Cloud Configもアップデートされます。<code>vm_extensions:</code>に次の内容が設定されます。</p>
+<pre><code>$ bosh cloud-config | grep elb -B 1 -A 5
+- cloud_properties:
+    elbs:
+    - bbl-env-va-05b9c6c-concourse-lb
+    security_groups:
+    - sg-27008f41
+    - sg-fb038c9d
+  name: lb
+</code></pre><p>ここまでできるとBOSHでソフトウェアのデプロイが可能です。次のサンプルアプリをデプロイしましょう。</p>
+<p><code>sample.yml</code>に次の内容を設定してください。</p>
+<pre><code class="lang-yaml">---
+name: hello-legacy-tomcat
+
+releases:
+- name: hello-legacy-tomcat
+  version: 0.2
+  url: https://github.com/making-dev/hello-legacy-tomcat-boshrelease/releases/download/0.2/hello-legacy-tomcat-0.2.tgz
+  sha1: a401254722d4b032f0170b1d17ca3546fd611524
+
+stemcells:
+- alias: ubuntu
+  os: ubuntu-trusty
+  version: latest
+
+update:
+  canaries: 2
+  max_in_flight: 1
+  canary_watch_time: 5000-60000
+  update_watch_time: 5000-60000
+
+instance_groups:
+- name: hello-legacy-tomcat
+  azs: [z1]
+  instances: 1
+  jobs:
+  - name: hello-legacy-tomcat
+    release: hello-legacy-tomcat
+    properties: {}
+  vm_type: t2.small
+  stemcell: ubuntu
+  persistent_disk_type: default
+  networks:
+  - name: private
+  vm_extensions:
+  - lb
+</code></pre>
+<p><code>bosh deploy</code>でデプロイ</p>
+<pre><code>bosh -n deploy -d hello-legacy-tomcat sample.yml
+</code></pre><p>デプロイされたら<code>bosh vms</code>で状態を確認できます。</p>
+<pre><code>$ bosh vms
+
+Task 5. Done
+
+Deployment &#39;hello-legacy-tomcat&#39;
+
+Instance                                                  Process State  AZ  IPs        VM CID               VM Type   
+hello-legacy-tomcat/c0060931-d188-4df6-b843-4b5bcf07f7a8  running        z1  10.0.16.4  i-04eaa581f98467111  t2.small  
+
+1 vm
+</code></pre><p>ELB経由で8080番にアクセスできます。</p>
+<pre><code>$ curl http://&lt;elbのprefix&gt;.ap-northeast-1.elb.amazonaws.com
+&lt;html&gt;
+&lt;body&gt;
+&lt;h2&gt;Hello World!&lt;/h2&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre><h5 id="cloud-foundry-lb">Cloud Foundry用途のLB</h5>
+<pre><code>bbl create-lbs --type cf --key &lt;YOUR-key.pem&gt; --cert &lt;YOUR-cert.pem&gt;
+</code></pre><p>次のように3つのELBが作成されます。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/4da9bef3-8648-8736-f2fc-8842e4ba69fa.png" alt="image.png"></p>
+<h3 id="gcp-bosh-bootloader">GCPでbosh-bootloader</h3>
+<p>後日書く。</p>
+<h3 id="-">環境の削除</h3>
+<pre><code>bbl destroy
+</code></pre><p>で作成した環境を削除できます。</p>
+<h3 id="bosh-bootloader-iaas-">bosh-bootloaderでIaaS設定のみ行う</h3>
+<p>bosh-bootloaderは便利ですが、BOSH Directorの設定は自分で行いたい場合があります。
+特にBOSH CLI v2からは<a href="https://github.com/cloudfoundry/bosh-deployment">bosh-deployment</a>と<code>bosh create-env</code>で簡単にBOSH Director VMを作成でき、UAA連携、CredHub連携など拡張ポイントがあります。VM typeの選択もしたいです。</p>
+<p>bosh-bootloaderではIaaSの設定だけで止めるオプションがあります。手順1.だけbosh-bootloaderで行い、手順2は<code>bosh create-env</code>で行う形です。</p>
+<p><a href="https://github.com/cloudfoundry/bosh-bootloader/blob/master/docs/advanced.md">Advanced BOSH Configuration</a>に書かれています。</p>
+<pre><code>bbl up --no-director
+</code></pre><p>この場合は、Director VMは作成されません。<code>bosh-deployment-vars</code>で<code>bosh create-env</code>に必要な情報を取得できます。</p>
+<pre><code>$ bbl bosh-deployment-vars
+internal_cidr: 10.0.0.0/24
+internal_gw: 10.0.0.1
+internal_ip: 10.0.0.6
+director_name: bosh-bbl-env-vanern-2017-07-30t11-02z
+external_ip: xxx.yyy.zzz.www
+az: ap-northeast-1c
+subnet_id: subnet-866e4ede
+access_key_id: xxxxxxxxxxxxxxxx
+secret_access_key: yyyyyyyyyyyyyyyyy
+iam_instance_profile: terraform-005e1c7e8182cd3d46208a6399
+default_key_name: keypair-bbl-env-vanern-2017-07-30t11-02z
+default_security_groups: [sg-c4109fa2]
+region: ap-northeast-1
+private_key: |-
+  -----BEGIN RSA PRIVATE KEY-----
+  ...
+  -----END RSA PRIVATE KEY-----
+</code></pre><h4 id="-bosh-create-env-director-"><code>bosh create-env</code>でDirectorのセットアップ</h4>
+<p>Directorは標準的な<a href="https://github.com/cloudfoundry/bosh-deployment">bosh-deployment</a>で作成します。</p>
+<pre><code>git clone https://github.com/cloudfoundry/bosh-deployment.git deploy
+</code></pre><p>AWSの場合、</p>
+<pre><code>bosh create-env deploy/bosh.yml  \
+  --state ./state.json  \
+  -o deploy/aws/cpi.yml  \
+  -o deploy/external-ip-with-registry-not-recommended.yml \
+  --vars-store ./creds.yml  \
+  -l &lt;(bbl bosh-deployment-vars)
+</code></pre><p>でDirectorをセットアップできます。非推奨ではありますが、Directorに直接Public IPを設定するために<code>external-ip-with-registry-not-recommended.yml</code>も指定します。</p>
+<p>せっかくなのでDirectorのVMサイズを変更してみます。次のようなYAMLファイルを作成します。</p>
+<p><code>director-size.yml</code></p>
+<pre><code class="lang-yaml">- type: replace
+  path: /resource_pools/name=vms/cloud_properties/instance_type
+  value: t2.small
+</code></pre>
+<p>このファイルを<code>bosh create-env</code>の引数に追加します。</p>
+<pre><code>bosh create-env deploy/bosh.yml \
+  --state ./state.json \
+  -o deploy/aws/cpi.yml \
+  -o deploy/external-ip-with-registry-not-recommended.yml \
+  -o director-size.yml \
+  --vars-store ./creds.yml \
+  -l &lt;(bbl bosh-deployment-vars)
+</code></pre><p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/fbae1631-6230-156a-c72c-ee3aff1c8232.png" alt="image.png"></p>
+<p><code>t2.small</code>になっていることがわかります。</p>
+<p>BOSH Directorの設定、及びCloud Configの設定は次のようになります。</p>
+<pre><code>export BOSH_ENVIRONMENT=`bosh int --path /external_ip &lt;(bbl bosh-deployment-vars)`
+export BOSH_CLIENT=admin
+export BOSH_CLIENT_SECRET=`bosh int creds.yml --path /admin_password`
+export BOSH_CA_CERT=`bosh int creds.yml --path /director_ssl/ca`
+bosh -n update-cloud-config &lt;(bbl cloud-config)
+</code></pre><h4 id="uaa-">UAAの追加</h4>
+<p><code>bosh create-env</code>の引数にUAA用のファイルを追加して実行します。</p>
+<pre><code>bosh create-env deploy/bosh.yml \
+  --state ./state.json \
+  -o deploy/aws/cpi.yml \
+  -o deploy/uaa.yml \
+  -o deploy/external-ip-with-registry-not-recommended.yml \
+  -o deploy/external-ip-not-recommended-uaa.yml \
+  -o director-size.yml \
+  --vars-store ./creds.yml \
+  -l &lt;(bbl bosh-deployment-vars)
+</code></pre><p>BOSH Directorの設定、及びCloud Configの設定は次のようになります(再掲)。</p>
+<pre><code>export BOSH_ENVIRONMENT=`bosh int --path /external_ip &lt;(bbl bosh-deployment-vars)`
+export BOSH_CLIENT=admin
+export BOSH_CLIENT_SECRET=`bosh int creds.yml --path /admin_password`
+export BOSH_CA_CERT=`bosh int creds.yml --path /director_ssl/ca`
+bosh -n update-cloud-config &lt;(bbl cloud-config)
+</code></pre><blockquote>
+<p>次のように<code>--ops-file</code>オプションでBOSH CLIのように差分だけ適用してBOSHのデプロイをカスタマイズすることもできます。</p>
+<pre><code>bbl up --ops-file ./bosh-deployment/uaa.yml
+</code></pre></blockquote>
+<h4 id="credhub-">CredHubの追加</h4>
+<p>まずはSecurity GroupにUAAアクセス用の8844ポート許可を追加します。</p>
+<p>AWSの場合、</p>
+<pre><code>aws ec2 authorize-security-group-ingress --group-id $SECURITY_GROUP --protocol tcp --port 8844 --cidr 0.0.0.0/0
+</code></pre><p>CredHubの設定も同じようにできますが、<code>bosh-deployment</code>に外部からCredHubにアクセスするための<code>external-ip-not-recommended-credhub.yml</code>は用意されていないので、次のファイルを自分で作成します。</p>
+<pre><code class="lang-yaml">- type: replace
+  path: /variables/name=credhub_tls/options/alternative_names/-
+  value: ((external_ip))
+
+- type: replace
+  path: /instance_groups/name=bosh/jobs/name=credhub/properties/credhub/authentication/uaa/url
+  value: &quot;https://((external_ip)):8443&quot;
+</code></pre>
+<p>それから<code>bosh create-env</code>の引数にCredHub用のファイルを追加して実行します。</p>
+<pre><code>bosh create-env deploy/bosh.yml \
+  -o deploy/aws/cpi.yml \
+  -o deploy/uaa.yml \
+  -o deploy/credhub.yml \
+  -o deploy/external-ip-with-registry-not-recommended.yml \
+  -o deploy/external-ip-not-recommended-uaa.yml \
+  -o external-ip-not-recommended-credhub.yml \
+  -o director-size.yml \
+  --vars-store ./creds.yml \
+  -l &lt;(bbl bosh-deployment-vars)
+</code></pre><p>CredHubには次のコマンドでログインできます。</p>
+<pre><code>bosh int ./creds.yml --path /uaa_ssl/ca &gt; ~/uaa_ca
+bosh int ./creds.yml --path /credhub_ca/ca &gt; ~/credhub_ca
+credhub login -s `bosh int --path /external_ip &lt;(bbl bosh-deployment-vars)`:8844 -u credhub-cli -p `bosh int creds.yml --path /credhub_cli_password` --ca-cert ~/uaa_ca --ca-cert ~/credhub_ca
+</code></pre><h3 id="-">参考資料</h3>
+<p>CF Summit 2017の次のセッションが参考になります。</p>
+<p><iframe width="560" height="315" src="https://www.youtube.com/embed/lIhx69WfRcE" frameborder="0" allowfullscreen></iframe></p>
+<p><a href="https://schd.ws/hosted_files/cfsummit2017/60/CF%20Summit%20Talk.pdf">PDF</a></p>
+</div>
+</article>
+<footer>
+    <a href="https://blog.ik.am">BLOG.IK.AM</a> — &copy; 2010-2017 <a href="https://twitter.com/making">Toshiaki
+    Maki</a>
+</footer>
+</body>
+</html>

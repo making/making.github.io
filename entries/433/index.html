@@ -1,0 +1,152 @@
+<html>
+<head>
+    <title>BLOG.IK.AM</title>
+    <meta charset="UTF-8"/>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <link href="https://fonts.googleapis.com/earlyaccess/sawarabimincho.css" rel="stylesheet"/>
+    <style>
+        body {
+            font-size: small;
+            font-family: "Sawarabi Mincho";
+            margin: 20px;
+        }
+
+        a {
+            color: darkslategray;
+            text-decoration: none;
+        }
+
+        article {
+            border: darkgrey solid 1px;
+            border-radius: 10px;
+            padding: 0 10px 10px;
+        }
+
+        footer {
+            margin: 10px;
+        }
+
+        blockquote {
+            color: #464646;
+            font-style: italic;
+            border: darkgrey dotted 1px;
+            border-radius: 5px;
+            margin: 5px 0;
+            padding: 10px;
+        }
+
+        pre {
+            background-color: dimgray;
+            color: white;
+            padding: 5px;
+            border-radius: 5px;
+        }
+
+        h3:before {
+            content: "☕️ ";
+        }
+
+        h4:before {
+            content: "🍃 ";
+        }
+
+        h5:before {
+            content: "✈️️ ";
+        }
+
+        h6:before {
+            content: "☁️ ";
+        }
+
+        pre {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<h1>✏️ BLOG.IK.AM</h1>
+<p><a href="https://twitter.com/making">@making</a>'s memo</p>
+<body>
+<article>
+    <h2><a href="">GraylogをBOSHでデプロイ</a></h2>
+    <p>
+        Updated at <span>2017-08-07T03:25:03Z</span> by <span>Toshiaki Maki</span><br>
+        Created at <span>2017-08-07T03:21:38Z</span> by <span>Toshiaki Maki</span>
+    </p>
+    <div><p>ログ管理の<a href="https://www.graylog.org/">Graylog</a>のBOSH Releaseがあったので、試してみたメモです。</p>
+<p><a href="https://github.com/AusDTO/graylog-boshrelease">https://github.com/AusDTO/graylog-boshrelease</a></p>
+<ul>
+<li>Graylog</li>
+<li>MongoDB</li>
+<li>Elasticsearch (Master x 1, Data x 2)</li>
+</ul>
+<p>を一発でデプロイできて便利です。</p>
+<pre><code>git clone git@github.com:AusDTO/graylog-boshrelease.git
+cd graylog-boshrelease
+</code></pre><p>BOSH 2.0対応のマニフェストファイルが用意されているので、基本的には</p>
+<pre><code>bosh deploy -n -d graylog manifests/graylog.yml
+</code></pre><p>でデプロイできます。このままだとデフォルト設定が使用され、都合が悪いので、
+マニフェストファイルをカスタマイズします。</p>
+<p>BOSH CLI v2からは<a href="">Operator files</a>という考え方が導入され、
+ベースのマニフェストを書き換えなくてもパッチ用のYAMLを適用するだけでカスタマイズできるようになりました。</p>
+<p>graylog-boshreleaseでは幾つかのカスタマイズポイントごとにすでにOperator filesが用意されているので、
+それを<code>-o</code>で指定していくだけとなります。</p>
+<p>ここでは</p>
+<ul>
+<li><code>network.yml</code> ... graylogにstatic ipを割り当てるための設定</li>
+<li><code>graylog-accounts.yml</code> ... ルートアカウントの設定</li>
+<li><code>web-endpoint-uri.yml</code> ... RESTエンドポイントのURLの設定(<code>/api</code>まで設定する必要がある)</li>
+</ul>
+<pre><code>bosh deploy -n -d graylog manifests/graylog.yml \
+    -o manifests/operators/network.yml \
+    -o manifests/operators/graylog-accounts.yml \
+    -o manifests/operators/web-endpoint-uri.yml \
+    -v network-name=default \
+    -v graylog-static-ip=10.244.0.240 \
+    -v graylog-root-email=operations@example.com \
+    -v graylog-root-username=administrator \
+    -v graylog-root-password-sha2=60644240fe7ef9d4b17750b226a3ba88516cea9446439d275e922377f658fc4a \
+    -v graylog-web-uri=https://graylog.example.com/api
+</code></pre><p>sha2パスワードは<code>echo -n my-big-secret | shasum -a 256</code>で生成できます。</p>
+<p>CredHubを使う場合は、</p>
+<pre><code>credhub set -n &quot;/Bosh Lite Director/graylog/graylog-root-email&quot; --type=value -v &quot;operations@example.com&quot;
+credhub set -n &quot;/Bosh Lite Director/graylog/graylog-root-username&quot; --type=value -v &quot;administrator&quot;
+credhub set -n &quot;/Bosh Lite Director/graylog/graylog-root-password-sha2&quot; --type=value -v &quot;60644240fe7ef9d4b17750b226a3ba88516cea9446439d275e922377f658fc4a&quot;
+</code></pre><p>で設定し、</p>
+<pre><code>bosh deploy -n -d graylog manifests/graylog.yml \
+    -o manifests/operators/network.yml \
+    -o manifests/operators/graylog-accounts.yml \
+    -o manifests/operators/web-endpoint-uri.yml \
+    -v network-name=default \
+    -v graylog-static-ip=10.244.0.240 \
+    -v graylog-web-uri=https://graylog.example.com/api
+</code></pre><p>でデプロイできます。</p>
+<pre><code>$ bosh vms -d graylog
+Using environment &#39;192.168.50.6&#39; as client &#39;admin&#39;
+
+Task 131122. Done
+
+Deployment &#39;graylog&#39;
+
+Instance                                                   Process State  AZ  IPs           VM CID                                VM Type  
+elasticsearch-data/244afec8-3a5c-4e83-950a-28d1be187595    running        z1  10.244.0.10   304db4a0-50da-4230-5122-e9224c07f3cf  default  
+elasticsearch-data/bbb21ffe-3cb9-43c3-b4ab-778aeb9a58f3    running        z1  10.244.0.9    caf7fd07-a0ff-49e0-6fb8-6b61d6b8e90c  default  
+elasticsearch-master/0f2c212d-fbaf-448d-bfa8-b33102b41777  running        z1  10.244.0.8    e1e6aa3a-0fd2-451d-58ab-7042f240a6b0  default  
+graylog/506d8334-dd3b-48d8-8429-4558cf088f4e               running        z1  10.244.0.240  c8b6ecef-073c-4156-6925-89562effd3ab  default  
+mongodb/4182fb43-c8b4-422b-9356-7b82935713c6               running        z1  10.244.0.7    2710fa09-7333-430c-5545-bec0a8a0e21e  default  
+
+5 vms
+
+Succeeded
+</code></pre><p>簡単です。</p>
+<p><img width="80%" src="https://user-images.githubusercontent.com/106908/29011041-cab6e9b6-7b6a-11e7-8c3a-091109b71f66.png"></p>
+<p><img width="80%" src="https://user-images.githubusercontent.com/106908/29011042-ccd6ce28-7b6a-11e7-9d16-cdddf326156f.png"></p>
+<p>インストールできたけど、Graylogの使い方がわからない...</p>
+</div>
+</article>
+<footer>
+    <a href="https://blog.ik.am">BLOG.IK.AM</a> — &copy; 2010-2017 <a href="https://twitter.com/making">Toshiaki
+    Maki</a>
+</footer>
+</body>
+</html>

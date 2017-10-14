@@ -1,0 +1,108 @@
+<html>
+<head>
+    <title>BLOG.IK.AM</title>
+    <meta charset="UTF-8"/>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <link href="https://fonts.googleapis.com/earlyaccess/sawarabimincho.css" rel="stylesheet"/>
+    <style>
+        body {
+            font-size: small;
+            font-family: "Sawarabi Mincho";
+            margin: 20px;
+        }
+
+        a {
+            color: darkslategray;
+            text-decoration: none;
+        }
+
+        article {
+            border: darkgrey solid 1px;
+            border-radius: 10px;
+            padding: 0 10px 10px;
+        }
+
+        footer {
+            margin: 10px;
+        }
+
+        blockquote {
+            color: #464646;
+            font-style: italic;
+            border: darkgrey dotted 1px;
+            border-radius: 5px;
+            margin: 5px 0;
+            padding: 10px;
+        }
+
+        pre {
+            background-color: dimgray;
+            color: white;
+            padding: 5px;
+            border-radius: 5px;
+        }
+
+        h3:before {
+            content: "☕️ ";
+        }
+
+        h4:before {
+            content: "🍃 ";
+        }
+
+        h5:before {
+            content: "✈️️ ";
+        }
+
+        h6:before {
+            content: "☁️ ";
+        }
+
+        pre {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<h1>✏️ BLOG.IK.AM</h1>
+<p><a href="https://twitter.com/making">@making</a>'s memo</p>
+<body>
+<article>
+    <h2><a href="">Cloud FoundryのUAAでConcourseのチーム機能を使う</a></h2>
+    <p>
+        Updated at <span>2017-10-04T05:50:22Z</span> by <span>Toshiaki Maki</span><br>
+        Created at <span>2017-03-27T02:22:36Z</span> by <span>Toshiaki Maki</span>
+    </p>
+    <div><p>memo</p>
+<p>基本的には<a href="http://concourse.ci/teams.html#section_uaa-cf-auth">http://concourse.ci/teams.html#section_uaa-cf-auth</a>の通り。</p>
+<p>まずはUAAのクライアント作成</p>
+<pre><code>uaac client add concourse-atc \
+  --name concourse-atc \
+  --secret &lt;concourse-client-secret&gt; \
+  --authorized_grant_types authorization_code,client_credentials,refresh_token \
+  --authorities cloud_controller.admin \
+  --scope cloud_controller.read \
+  --access_token_validity 3600 \
+  --refresh_token_validity 36000 \
+  --redirect_uri https://&lt;concourse domain&gt;/auth/uaa/callback \
+  --autoapprove true
+</code></pre><p>次にConcourseのチーム作成</p>
+<pre><code>fly -t &lt;target&gt; set-team -n &lt;team&gt;   \
+    --basic-auth-username=admin \
+    --basic-auth-password=admin \
+    --uaa-auth-client-id concourse-atc \
+    --uaa-auth-client-secret &lt;concourse-client-secret&gt; \
+    --uaa-auth-auth-url https://login.&lt;system domain&gt;/oauth/authorize \
+    --uaa-auth-token-url https://login.&lt;system domain&gt;/oauth/token \
+    --uaa-auth-cf-url https://api.&lt;system domain&gt; \
+    --uaa-auth-cf-space &lt;space uuid&gt; \
+    --uaa-auth-cf-ca-cert ~/xxxx.crt
+</code></pre><p><code>uaa-auth-cf-ca-cert</code>は自己証明書を使っている場合に必要</p>
+</div>
+</article>
+<footer>
+    <a href="https://blog.ik.am">BLOG.IK.AM</a> — &copy; 2010-2017 <a href="https://twitter.com/making">Toshiaki
+    Maki</a>
+</footer>
+</body>
+</html>

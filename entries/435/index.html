@@ -1,0 +1,467 @@
+<html>
+<head>
+    <title>BLOG.IK.AM</title>
+    <meta charset="UTF-8"/>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <link href="https://fonts.googleapis.com/earlyaccess/sawarabimincho.css" rel="stylesheet"/>
+    <style>
+        body {
+            font-size: small;
+            font-family: "Sawarabi Mincho";
+            margin: 20px;
+        }
+
+        a {
+            color: darkslategray;
+            text-decoration: none;
+        }
+
+        article {
+            border: darkgrey solid 1px;
+            border-radius: 10px;
+            padding: 0 10px 10px;
+        }
+
+        footer {
+            margin: 10px;
+        }
+
+        blockquote {
+            color: #464646;
+            font-style: italic;
+            border: darkgrey dotted 1px;
+            border-radius: 5px;
+            margin: 5px 0;
+            padding: 10px;
+        }
+
+        pre {
+            background-color: dimgray;
+            color: white;
+            padding: 5px;
+            border-radius: 5px;
+        }
+
+        h3:before {
+            content: "☕️ ";
+        }
+
+        h4:before {
+            content: "🍃 ";
+        }
+
+        h5:before {
+            content: "✈️️ ";
+        }
+
+        h6:before {
+            content: "☁️ ";
+        }
+
+        pre {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<h1>✏️ BLOG.IK.AM</h1>
+<p><a href="https://twitter.com/making">@making</a>'s memo</p>
+<body>
+<article>
+    <h2><a href="">Kubo(Kubernetes on BOSH)をGCPにデプロイ</a></h2>
+    <p>
+        Updated at <span>2017-09-30T19:59:52Z</span> by <span>Toshiaki Maki</span><br>
+        Created at <span>2017-08-21T14:46:53Z</span> by <span>Toshiaki Maki</span>
+    </p>
+    <div><p><strong>目次</strong></p>
+<!-- toc -->
+<ul>
+<li><a href="#kubo-">Kuboとは</a></li>
+<li><a href="#gcp-">GCP環境のセットアップ</a></li>
+<li><a href="#bosh-">BOSHのデプロイ</a></li>
+<li><a href="#routing-">Routing方式の設定</a></li>
+<li><a href="#kubernetes-">Kubernetesクラスタのデプロイ</a></li>
+<li><a href="#kubernetes-">Kubernetesへのアクセス</a></li>
+<li><a href="#-">アプリケーションのデプロイ</a></li>
+<li><a href="#bosh-resurrection">BOSHによるResurrection</a></li>
+<li><a href="#kubernetes-">Kubernetesクラスタのスケールイン</a></li>
+<li><a href="#kubernetes-">Kubernetesクラスタの停止</a></li>
+<li><a href="#kubernetes-">Kubernetesクラスタの再開</a></li>
+<li><a href="#kubernetes-">Kubernetesクラスタの削除</a></li>
+</ul>
+<!-- tocstop -->
+<h3 id="kubo-">Kuboとは</h3>
+<p>KuboはKubernetesの<a href="https://bosh.io">BOSH</a> Releaseです。BOSHを利用して、Kubernetesのデプロイ、運用を行うことができます。</p>
+<ul>
+<li><a href="https://pivotal.io/jp/partners/kubo">https://pivotal.io/jp/partners/kubo</a></li>
+<li><a href="https://github.com/cloudfoundry-incubator/kubo-deployment">https://github.com/cloudfoundry-incubator/kubo-deployment</a></li>
+</ul>
+<p>PivotalとGoogleのエンジニアで共同開発されています。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/ed1bb4ed-dfdd-ed0c-60f5-700b0fd23e61.png" alt="image.png"></p>
+<p>BOSHはCloud Foundryの運用において長く使用されているツールです。</p>
+<p>BOSHもKubernetesもGoogleのBorgを起源としており、Kubernetesがコンテナの管理をするのに対して、BOSHは同じように、その下のVMの管理を行います。</p>
+<p>BOSHを使用することにより、</p>
+<ul>
+<li>マルチクラウド環境(GCP, AWS, Azure, vSphere, OpenStack)にデプロイできる (クラスタを分散できるわけではありません)</li>
+<li>Day 1 Operation(k8sクラスタのインストール、デプロイ)だけでなく、Day 2 Operation(k8sクラスタ自体の自動復旧、スケールアウト、Multi-AZ対応、ローリングアップデート)に対応できる</li>
+</ul>
+<p>などのメリットがあり、他のKubernetesデプロイツールとの違いになっています。</p>
+<p>GKEやACSのようなManaged Kubernetesが使えない場合や、パブリッククラウドとオンプレミスで同じ環境を使いたい場合の魅力的な選択肢になるかと思います。</p>
+<p>本記事の執筆時点ではKubo(v0.6.0)は</p>
+<ul>
+<li>GCP</li>
+<li>vSphere</li>
+<li>OpenStack</li>
+<li>AWS</li>
+</ul>
+<p>に対応しています。</p>
+<p>以下はGCPにKuboをデプロイした時のメモです。</p>
+<p>使用したcommitは</p>
+<ul>
+<li><a href="https://github.com/cloudfoundry-incubator/kubo-deployment/tree/34e334346a7801c874dede7441466a3ed70d794b">kubo-deployment#34e334346a7801c874dede7441466a3ed70d794b</a></li>
+<li><a href="https://github.com/cloudfoundry-incubator/kubo-release/tree/25bad93ecb13fdb9c42f8be23b67571501331c20">kubo-release#25bad93ecb13fdb9c42f8be23b67571501331c20</a></li>
+</ul>
+<p>です。</p>
+<h3 id="gcp-">GCP環境のセットアップ</h3>
+<p>まずはGCPにBOSHをデプロイするための下準備です。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/a4d1edb0-3c1f-e5dd-00d5-119aff159177.png" alt="image.png"></p>
+<p>Google Cloud Shellで作業します。</p>
+<p>まずはIAMを設定します。</p>
+<pre><code>export project_id=$(gcloud config get-value project)
+export region=asia-northeast1
+export zone=asia-northeast1-a
+export prefix=${project_id}-kubo
+export service_account_email=${prefix}terraform@${project_id}.iam.gserviceaccount.com
+export network=${prefix}-net
+export subnet_ip_prefix=&quot;10.0.1&quot;
+
+gcloud config set compute/zone ${zone}
+gcloud config set compute/region ${region}
+gcloud compute --project=${project_id} networks create ${network} --mode=custom
+
+gcloud iam service-accounts create ${prefix}terraform
+gcloud iam service-accounts keys create ~/terraform.key.json --iam-account ${service_account_email}
+gcloud projects add-iam-policy-binding ${project_id} --member serviceAccount:${service_account_email} --role roles/owner
+export GOOGLE_CREDENTIALS=$(cat ~/terraform.key.json)
+</code></pre><p>次にBastion(踏み台)サーバーとNATのVMをTerraformで作成します。</p>
+<pre><code>cd ~
+git clone https://github.com/cloudfoundry-incubator/kubo-deployment.git
+cd ~/kubo-deployment/docs/user-guide/platforms/gcp
+docker run -i -t \
+  -v $(pwd):/$(basename $(pwd)) \
+  -w /$(basename $(pwd)) \
+  hashicorp/terraform:light init
+docker run -i -t \
+  -e CHECKPOINT_DISABLE=1 \
+  -e &quot;GOOGLE_CREDENTIALS=${GOOGLE_CREDENTIALS}&quot; \
+  -v $(pwd):/$(basename $(pwd)) \
+  -w /$(basename $(pwd)) \
+  hashicorp/terraform:light apply \
+    -var service_account_email=${service_account_email} \
+    -var projectid=${project_id} \
+    -var network=${network} \
+    -var region=${region} \
+    -var prefix=${prefix} \
+    -var zone=${zone} \
+    -var subnet_ip_prefix=${subnet_ip_prefix}
+gcloud compute scp ~/terraform.key.json &quot;${prefix}bosh-bastion&quot;:./ --zone ${zone}
+gcloud compute scp --recurse ~/kubo-deployment &quot;${prefix}bosh-bastion&quot;:/share/ --zone ${zone}
+</code></pre><p>サブネットが作成されています。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/30035cfa-b97e-8d02-d379-ebc6fd0fbd8b.png" alt="image.png"></p>
+<p>VMが2つ作成されています。<code>***bosh-bastion</code>がBastion(踏み台)サーバー、<code>***nat-instance-primary</code>がNATです。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/6cae1d2d-ab25-9597-276b-e0f0973a90cd.png" alt="image.png"></p>
+<p>以降はBastionサーバーにログインして作業します。</p>
+<pre><code>gcloud compute ssh &quot;${prefix}bosh-bastion&quot; --zone ${zone}
+</code></pre><h3 id="bosh-">BOSHのデプロイ</h3>
+<p>次にBOSH Directorをデプロイします。</p>
+<pre><code>cd /share/kubo-deployment
+
+export kubo_envs=~/kubo-env
+export kubo_env_name=kubo
+export kubo_env_path=&quot;${kubo_envs}/${kubo_env_name}&quot;
+
+mkdir -p &quot;${kubo_envs}&quot;
+./bin/generate_env_config &quot;${kubo_envs}&quot; ${kubo_env_name} gcp
+/usr/bin/update_gcp_env &quot;${kubo_env_path}/director.yml&quot;
+./bin/deploy_bosh &quot;${kubo_env_path}&quot; ~/terraform.key.json
+</code></pre><p>Labelに<code>deployment=bosh, director=bosh-init</code>が設定されているVMがBOSH Directorです。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/6325522f-7e09-fcb5-808e-7891af694e9c.png" alt="image.png"></p>
+<h3 id="routing-">Routing方式の設定</h3>
+<p>KuboではKubernetesに対するルーティング方式として</p>
+<ul>
+<li>CF (Cloud Foundryと連携し、GoRouter, TCPRouterからk8sへアクセス可能にする)</li>
+<li>IaaS (IaaSのLBを使用する)</li>
+<li>HA Proxy (HA Proxyを使用する)</li>
+</ul>
+<p>が選択可能です。今回はKubo単独のデプロイなので、IaaSを選択します。</p>
+<pre><code>cd /share/kubo-deployment/docs/user-guide/routing/gcp
+export state_dir=~/kubo-env/${kubo_env_name}
+export kubo_terraform_state=${state_dir}/terraform.tfstate
+terraform apply \
+    -var network=${network} \
+    -var projectid=${project_id} \
+    -var region=${region} \
+    -var prefix=${prefix} \
+    -var ip_cidr_range=&quot;${subnet_ip_prefix}.0/24&quot; \
+    -state=${kubo_terraform_state}
+export master_target_pool=$(terraform output -state=${kubo_terraform_state} kubo_master_target_pool)                                                                           
+export kubernetes_master_host=$(terraform output -state=${kubo_terraform_state} master_lb_ip_address)
+/usr/bin/set_iaas_routing &quot;${state_dir}/director.yml&quot;
+</code></pre><p>まずはMaster NodeのAPI ServerへのLBが作成されます。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/19a53b6f-083d-620b-81dd-b9253de6e262.png" alt="image.png"></p>
+<h3 id="kubernetes-">Kubernetesクラスタのデプロイ</h3>
+<p>いよいよ、BOSHを使ったKubernetesのデプロイです。</p>
+<pre><code>cd /share/kubo-deployment
+bin/deploy_k8s ${kubo_env_path} ${prefix}cluster
+</code></pre><p>しばらく待つと、VMが8つ追加されます。</p>
+<ul>
+<li>master x 2</li>
+<li>etcd x 3</li>
+<li>worker x 3</li>
+</ul>
+<p>です。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/cb1ad78d-edbc-793e-1ec8-f0c267982447.png" alt="image.png"></p>
+<p>BOSH DirectorにログインしてBOSH CLIを使用しましょう。</p>
+<pre><code>export BOSH_ENVIRONMENT=`gcloud compute instances list --filter labels.deployment=bosh | grep RUNNING | awk &#39;{print $4}&#39;`
+export BOSH_CLIENT=admin
+export BOSH_CLIENT_SECRET=`bosh-cli int ${kubo_env_path}/creds.yml --path /admin_password`
+export BOSH_CA_CERT=`bosh-cli int ${kubo_env_path}/creds.yml --path /director_ssl/ca`
+</code></pre><p><code>bosh-cli vms</code>でBOSHでデプロイしたVM一覧を取得できます。</p>
+<pre><code>$ bosh-cli vms
+Using environment &#39;10.0.1.252&#39; as client &#39;admin&#39;
+Task 6. Done
+Deployment &#39;fe-tmaki-kubocluster&#39;
+Instance                                     Process State  AZ  IPs        VM CID                                   VM Type
+etcd/29fc3df2-45dd-4f9c-9314-327a13a32283    running        z1  10.0.1.7   vm-b86faa89-8726-4e86-7ef0-22cc86d479c9  common
+etcd/7ea9a870-cc1e-490e-9ead-230a7ebc945a    running        z1  10.0.1.11  vm-0922c0b2-f997-4e0b-7c4e-26e2581eec23  common
+etcd/aa84e25e-bfc4-4235-a668-520980338531    running        z1  10.0.1.10  vm-00b71b57-ccdb-453a-6249-a7bc9ef5832c  common
+master/b003dbd2-b6a4-4d79-93b4-fb00d71cd4a1  running        z1  10.0.1.4   vm-2ade7004-28a7-48e3-42ce-d2750ce9c5c5  master
+master/f63be039-ffd9-4783-bc78-dd26065d97fb  running        z1  10.0.1.9   vm-9e961a54-194c-4b82-7819-18df78d053ca  master
+worker/ca43686b-058a-4c3e-8c71-7edc9aa2e756  running        z1  10.0.1.6   vm-7bc295ca-d71b-4f4c-4fb1-863f8d36f989  worker
+worker/e0393799-dfe4-4a6a-be5c-fa21d6c71836  running        z1  10.0.1.5   vm-5c0eb0e7-1116-4a9a-7df3-67b213ecc2fa  worker
+worker/e43c01fa-f49b-473c-85d4-11644a050fa7  running        z1  10.0.1.8   vm-08384a35-dbb6-421f-619c-3526b156100a  worker
+8 vms
+Succeeded
+</code></pre><p><code>bosh-cli releases</code>で使用中のBOSH Release(ソフトウェアのソースコード・バイナリ、設定ファイル、起動・監視スクリプト群)一覧を取得できます。</p>
+<pre><code>$ bosh-cli releases
+Using environment &#39;10.0.1.252&#39; as client &#39;admin&#39;
+Name       Version       Commit Hash
+docker     28.0.1*       8096ad43+
+kubo       0.7.0-dev.3*  25bad93
+kubo-etcd  2*            aa57fc9
+</code></pre><p>GCPのロードバランサを確認するとMaster Nodeに振られていることがわかります。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/d09d40a4-05e6-fec1-aa0e-12730a968ec6.png" alt="image.png"></p>
+<h3 id="kubernetes-">Kubernetesへのアクセス</h3>
+<p>デプロイしたKubernetesへアクセスしましょう。</p>
+<pre><code>bin/set_kubeconfig ${kubo_env_path} ${prefix}cluster
+</code></pre><p><code>~/.kube/config</code>が更新されました。これで<code>kubectl</code>を使ってアクセス可能です。</p>
+<pre><code>$ kubectl version
+Client Version: version.Info{Major:&quot;1&quot;, Minor:&quot;7&quot;, GitVersion:&quot;v1.7.4&quot;, GitCommit:&quot;793658f2d7ca7f064d2bdf606519f9fe1229c381&quot;, GitTreeState:&quot;clean&quot;, BuildDate:&quot;2017-08-17T08:48:23Z&quot;, GoVersion:&quot;go1.8.3&quot;, Compiler:&quot;gc&quot;, Platform:&quot;linux/amd64&quot;}
+Server Version: version.Info{Major:&quot;1&quot;, Minor:&quot;7&quot;, GitVersion:&quot;v1.7.1&quot;, GitCommit:&quot;1dc5c66f5dd61da08412a74221ecc79208c2165b&quot;, GitTreeState:&quot;clean&quot;, BuildDate:&quot;2017-07-14T01:48:01Z&quot;, GoVersion:&quot;go1.8.3&quot;, Compiler:&quot;gc&quot;, Platform:&quot;linux/amd64&quot;}
+
+$ kubectl get pods --namespace=kube-system
+NAME                                    READY     STATUS    RESTARTS   AGE
+heapster-2986240809-t2x5m               1/1       Running   0          1h
+kube-dns-3329716278-3wn5n               3/3       Running   0          1h
+kubernetes-dashboard-1367211859-0zbv0   1/1       Running   0          1h
+monitoring-influxdb-564852376-vn1f5     1/1       Running   0          1h
+
+$ kubectl get node -o wide
+NAME                                      STATUS    AGE       VERSION   EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION
+vm-08384a35-dbb6-421f-619c-3526b156100a   Ready     1h        v1.7.1                  Ubuntu 14.04.5 LTS   4.4.0-83-generic
+vm-5c0eb0e7-1116-4a9a-7df3-67b213ecc2fa   Ready     1h        v1.7.1                  Ubuntu 14.04.5 LTS   4.4.0-83-generic
+vm-7bc295ca-d71b-4f4c-4fb1-863f8d36f989   Ready     1h        v1.7.1                  Ubuntu 14.04.5 LTS   4.4.0-83-generic
+</code></pre><h3 id="-">アプリケーションのデプロイ</h3>
+<p>簡単なアプリケーションをデプロイします。次の<code>hello-tomcat.yml</code></p>
+<pre><code class="lang-yaml">kind: Service
+apiVersion: v1
+metadata:
+  name: hello-tomcat-service
+spec:
+  selector:
+    run: hello-tomcat
+  ports:
+  - protocol: TCP
+    port: 8080
+    targetPort: 8080
+  type: LoadBalancer
+---
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: hello-tomcat-deployment
+spec:
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        run: hello-tomcat
+    spec:
+      containers:
+      - name: hello-tomcat
+        image: making/hello-tomcat:v1
+        ports:
+        - containerPort: 8080
+</code></pre>
+<p><code>kubectl create</code>でデプロイします。</p>
+<pre><code>kubectl create -f hello-tomcat.yml
+</code></pre><p>しばらくするとPodとServiceが作成され、LBのIPアドレスが割り当てられます。</p>
+<pre><code>$ kubectl get pods
+NAME                                       READY     STATUS    RESTARTS   AGE
+hello-tomcat-deployment-1598259564-0v4cp   1/1       Running   0          2m
+hello-tomcat-deployment-1598259564-b2cqg   1/1       Running   0          2m
+
+$  kubectl get service hello-tomcat-service -o wide
+NAME                   CLUSTER-IP       EXTERNAL-IP    PORT(S)          AGE       SELECTOR
+hello-tomcat-service   10.100.200.178   35.200.95.68   8080:32517/TCP   11m       run=hello-tomcat
+</code></pre><p>GCPのLB画面を見ても、確かに新規のLBが作成され、Worker Nodeに振られていることがわかります。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/8bea9d4e-4c7a-5c95-36bc-ae7e2c17b2b5.png" alt="image.png"></p>
+<p>これで、次のコマンドでコンテナにアクセスできます。</p>
+<pre><code>curl 35.200.95.68:8080
+</code></pre><p>と、思ったのですが、繋がらない......</p>
+<p>よくよく見てみると、LBに対応するFirewall Ruleが適用されるには<code>${prefix}bosh-kubo-worker</code>タグが設定されている必要があるのですが、</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/e13364fb-19d5-947c-3879-0c247b918987.png" alt="image.png"></p>
+<p>Worker Nodeには設定されていません。。。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/6adcd78a-0f12-865a-6253-8682ff772d02.png" alt="image.png"></p>
+<p>次のissueが上がっていましたのでバグのようです。</p>
+<p><a href="https://github.com/cloudfoundry-incubator/kubo-deployment/issues/162">https://github.com/cloudfoundry-incubator/kubo-deployment/issues/162</a></p>
+<p>ここは一旦Workarroundとして、手動でWorker Nodeにtagを設定します。</p>
+<pre><code>for vm in `gcloud compute instances list --filter labels.job=worker | grep RUNNING | awk &#39;{print $1}&#39;`;do
+  gcloud compute instances add-tags $vm --tags ${prefix}bosh-kubo-worker;
+done
+</code></pre><p>これでなんとかアクセスできました。</p>
+<pre><code>$ curl 35.200.95.68:8080
+&lt;html&gt;
+&lt;body&gt;
+&lt;h2&gt;Hello World!&lt;/h2&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+
+$ curl 35.200.95.68:8080/env
+HELLO_TOMCAT_SERVICE_SERVICE_HOST: 10.100.200.178
+PATH: /usr/local/tomcat/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+KUBERNETES_PORT: tcp://10.100.200.1:443
+JAVA_HOME: /docker-java-home/jre
+CA_CERTIFICATES_JAVA_VERSION: 20161107~bpo8+1
+KUBERNETES_SERVICE_HOST: 10.100.200.1
+LANG: C.UTF-8
+TOMCAT_MAJOR: 8
+TOMCAT_VERSION: 8.5.15
+LD_LIBRARY_PATH: /usr/local/tomcat/native-jni-lib
+OPENSSL_VERSION: 1.1.0e-2
+HELLO_TOMCAT_SERVICE_PORT_8080_TCP_PROTO: tcp
+TOMCAT_NATIVE_LIBDIR: /usr/local/tomcat/native-jni-lib
+PWD: /usr/local/tomcat
+JAVA_VERSION: 8u131
+KUBERNETES_PORT_443_TCP: tcp://10.100.200.1:443
+TOMCAT_TGZ_URL: https://www.apache.org/dyn/closer.cgi?action=download&amp;filename=tomcat/tomcat-8/v8.5.15/bin/apache-tomcat-8.5.15.tar.gz
+KUBERNETES_PORT_443_TCP_ADDR: 10.100.200.1
+HELLO_TOMCAT_SERVICE_PORT_8080_TCP_ADDR: 10.100.200.178
+CATALINA_HOME: /usr/local/tomcat
+HELLO_TOMCAT_SERVICE_PORT: tcp://10.100.200.178:8080
+KUBERNETES_PORT_443_TCP_PROTO: tcp
+HELLO_TOMCAT_SERVICE_SERVICE_PORT: 8080
+HELLO_TOMCAT_SERVICE_PORT_8080_TCP_PORT: 8080
+KUBERNETES_SERVICE_PORT: 443
+HOSTNAME: hello-tomcat-deployment-1598259564-dhmnw
+JAVA_DEBIAN_VERSION: 8u131-b11-1~bpo8+1
+TOMCAT_ASC_URL: https://www.apache.org/dist/tomcat/tomcat-8/v8.5.15/bin/apache-tomcat-8.5.15.tar.gz.asc
+KUBERNETES_PORT_443_TCP_PORT: 443
+KUBERNETES_SERVICE_PORT_HTTPS: 443
+HELLO_TOMCAT_SERVICE_PORT_8080_TCP: tcp://10.100.200.178:8080
+GPG_KEYS: 05AB33110949707C93A279E3D3EFE6B686867BA6 07E48665A34DCAFAE522E5E6266191C37C037D42 47309207D818FFD8DCD3F83F1931D684307A10A5 541FBE7D8F78B25E055DDEE13C370389288584E7 61B832AC2F1C5A90F0F9B00A1C506407564C17A3 713DA88BE50911535FE716F5208B0AB1D63011C7 79F7026C690BAA50B92CD8B66A3AD3F4F22C4FED 9BA44C2621385CB966EBA586F72C284D731FABEE A27677289986DB50844682F8ACB77FC2E86E29AC A9C5DF4D22E99998D9875A5110C01C5A2F6059E7 DCFD35E0BF8CA7344752DE8B6FB21E8933C60243 F3A04C595DB5B6A5F1ECA43E3B7BBB100D811BBE F7DA48BB64BCB84ECBA7EE6935CD23C10D498E23
+HOME: /root
+</code></pre><p>ロードバランスできていることも確認できます。</p>
+<pre><code>$ for i in `seq 1 10`;do curl -s 35.200.95.68:8080/env | grep HOSTNAME;done
+HOSTNAME: hello-tomcat-deployment-1598259564-dhmnw
+HOSTNAME: hello-tomcat-deployment-1598259564-dhmnw
+HOSTNAME: hello-tomcat-deployment-1598259564-vbknx
+HOSTNAME: hello-tomcat-deployment-1598259564-vbknx
+HOSTNAME: hello-tomcat-deployment-1598259564-vbknx
+HOSTNAME: hello-tomcat-deployment-1598259564-dhmnw
+HOSTNAME: hello-tomcat-deployment-1598259564-vbknx
+HOSTNAME: hello-tomcat-deployment-1598259564-vbknx
+HOSTNAME: hello-tomcat-deployment-1598259564-dhmnw
+HOSTNAME: hello-tomcat-deployment-1598259564-vbknx
+</code></pre><h3 id="bosh-resurrection">BOSHによるResurrection</h3>
+<p>次にBOSHによるVMのResurrection(自動復旧)を試してみます。</p>
+<p>わざとWorker Nodeの一つ(<code>vm-e43c01fa-f49b-473c-85d4-11644a050fa7</code>)をGCPのConsoleから削除します。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/274e599b-ceab-4964-845c-035d66e63d25.png" alt="image.png"></p>
+<p>しばらくするとVMの新規作成が始まります。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/b6c62361-5e06-076e-589b-f328de053b9b.png" alt="image.png"></p>
+<p>そして、Worker Nodeとして復帰します。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/81ed5558-ee97-d996-7acf-386ca7fb2c08.png" alt="image.png"></p>
+<p>この機能はBOSHの標準機能であり、特別な設定は不要です。</p>
+<p>(が、またしても<code>${prefix}bosh-kubo-worker</code>タグがついていませんでした。。。<a href="https://github.com/cloudfoundry-incubator/kubo-deployment/issues/162">kubo-deployment#162</a>修正待ち。)</p>
+<h3 id="kubernetes-">Kubernetesクラスタのスケールイン</h3>
+<p>MasterとEtcdを1インスタンスに減らします。</p>
+<pre><code>bosh-cli manifest -d ${prefix}cluster &gt; kubo.yml
+cat &lt;&lt;EOF &gt; scale-in.yml
+- type: replace
+  path: /instance_groups/name=etcd/instances
+  value: 1
+- type: replace
+  path: /instance_groups/name=master/instances
+  value: 1
+- type: replace
+  path: /instance_groups/name=worker/instances
+  value: 3
+EOF
+bosh-cli deploy -d ${prefix}cluster &lt;(bosh-cli int kubo.yml -o scale-in.yml)
+</code></pre><p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/32b987e9-d516-f80c-6485-84accbf2d025.png" alt="image.png"></p>
+<pre><code>$ bosh-cli vms
+Using environment &#39;10.0.1.252&#39; as client &#39;admin&#39;
+Task 64. Done
+Deployment &#39;fe-tmaki-kubocluster&#39;
+Instance                                     Process State  AZ  IPs        VM CID                                   VM Type
+etcd/7ea9a870-cc1e-490e-9ead-230a7ebc945a    running        z1  10.0.1.11  vm-f8fa6f1b-51cb-4335-46bc-d0def79d3143  common
+master/b003dbd2-b6a4-4d79-93b4-fb00d71cd4a1  running        z1  10.0.1.4   vm-8ff505ae-8f28-40fe-6fd5-01745368e5c3  master
+worker/1c356a7e-50e4-4b1e-8edd-ec7ba943cc28  running        z1  10.0.1.8   vm-1823d788-e7b3-488f-66ec-e1c5d085a797  worker
+worker/21cc8f19-7bf3-407e-b4a7-d07f67510935  running        z1  10.0.1.6   vm-f6dbd590-20a2-44e6-6be3-a2328639c9e4  worker
+worker/e0393799-dfe4-4a6a-be5c-fa21d6c71836  running        z1  10.0.1.5   vm-e9e1b93f-5ec1-4ac5-4b7a-165a4e934a71  worker
+</code></pre><h3 id="kubernetes-">Kubernetesクラスタの停止</h3>
+<p><code>bosh-cli stop</code>でクラスタを停止できますが、デフォルトではプロセスが停止するだけです。VMの削除まで行いたい場合は、<code>--hard</code>をつけます。</p>
+<p><a href="https://github.com/cloudfoundry-incubator/etcd-release#failed-deploys-upgrades-split-brain-scenarios-etc">Cloud Foundryでの経験</a>上、stop前のetcdは1インスタンスに減らしておくのが無難です。</p>
+<pre><code>bosh-cli stop --hard -d ${prefix}cluster
+</code></pre><p>Master, Etcd, WorkerのVMが削除されたことがわかります。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/11bc343a-4790-181f-4d56-2811d674b843.png" alt="image.png"></p>
+<p>VMは削除されますが、Persistent Diskは残っています。</p>
+<blockquote>
+<p>注意: 運用中は行わない操作です。動作確認中に課金時間を少なくしたい場合のみ行います。</p>
+</blockquote>
+<h3 id="kubernetes-">Kubernetesクラスタの再開</h3>
+<p>停止したクラスタは<code>bosh-cli start</code>で再開できます。</p>
+<pre><code>bosh-cli start -d ${prefix}cluster
+</code></pre><p>IPアドレスは再割り当てされます。</p>
+<pre><code>$ bosh-cli vms
+Using environment &#39;10.0.1.252&#39; as client &#39;admin&#39;
+Task 71. Done
+Deployment &#39;fe-tmaki-kubocluster&#39;
+Instance                                     Process State  AZ  IPs       VM CID                                   VM Type
+etcd/7ea9a870-cc1e-490e-9ead-230a7ebc945a    running        z1  10.0.1.8  vm-2abe4bd8-6c47-4d54-7ac0-d404daf857c2  common
+master/b003dbd2-b6a4-4d79-93b4-fb00d71cd4a1  running        z1  10.0.1.4  vm-8aa68b01-ea2a-46d4-628f-de9640753baf  master
+worker/1c356a7e-50e4-4b1e-8edd-ec7ba943cc28  running        z1  10.0.1.5  vm-bc2d88c0-7e20-46c3-7ecd-cca800e65c89  worker
+worker/21cc8f19-7bf3-407e-b4a7-d07f67510935  running        z1  10.0.1.6  vm-c37a7eaf-8a67-4d9f-7e27-83cf70548dda  worker
+worker/e0393799-dfe4-4a6a-be5c-fa21d6c71836  running        z1  10.0.1.7  vm-ec528f91-6222-4b41-5094-99d0a3e21eed  worker
+5 vms
+Succeeded
+</code></pre><p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/6771eafd-a920-4af0-b7a1-9deba057f768.png" alt="image.png"></p>
+<h3 id="kubernetes-">Kubernetesクラスタの削除</h3>
+<p>動作確認が終われば、クラスタを削除します。</p>
+<p>次のコマンドでk8sクラスタを削除できます。</p>
+<pre><code>bosh-cli delete-deployment -d ${prefix}cluster
+</code></pre><p>この操作でBOSH Director、NAT、Bastionは削除されません。また、Kubernetesが作成したLBも削除されません。</p>
+<hr>
+<p>GCPだとGKEがあるので、あまりメリットを感じないかもしれないけれども、
+Cloud FoundryユーザーにとってはKuboを使うことで、Cloud FoundryのRouterを通じてk8sのコンテナにルーティングできたり、
+将来的には<code>cf create-service</code>でk8sクラスタをオンデマンドで作成することができるようになるので、魅力的です。
+またOpen Service Broker APIを通じて、CF &lt;---&gt; k8s間のバックエンドサービスの相互運用も可能になります。</p>
+<p>今度はAWSにデプロイしようかな。</p>
+</div>
+</article>
+<footer>
+    <a href="https://blog.ik.am">BLOG.IK.AM</a> — &copy; 2010-2017 <a href="https://twitter.com/making">Toshiaki
+    Maki</a>
+</footer>
+</body>
+</html>

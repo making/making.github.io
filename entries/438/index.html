@@ -1,0 +1,296 @@
+<html>
+<head>
+    <title>BLOG.IK.AM</title>
+    <meta charset="UTF-8"/>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <link href="https://fonts.googleapis.com/earlyaccess/sawarabimincho.css" rel="stylesheet"/>
+    <style>
+        body {
+            font-size: small;
+            font-family: "Sawarabi Mincho";
+            margin: 20px;
+        }
+
+        a {
+            color: darkslategray;
+            text-decoration: none;
+        }
+
+        article {
+            border: darkgrey solid 1px;
+            border-radius: 10px;
+            padding: 0 10px 10px;
+        }
+
+        footer {
+            margin: 10px;
+        }
+
+        blockquote {
+            color: #464646;
+            font-style: italic;
+            border: darkgrey dotted 1px;
+            border-radius: 5px;
+            margin: 5px 0;
+            padding: 10px;
+        }
+
+        pre {
+            background-color: dimgray;
+            color: white;
+            padding: 5px;
+            border-radius: 5px;
+        }
+
+        h3:before {
+            content: "☕️ ";
+        }
+
+        h4:before {
+            content: "🍃 ";
+        }
+
+        h5:before {
+            content: "✈️️ ";
+        }
+
+        h6:before {
+            content: "☁️ ";
+        }
+
+        pre {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<h1>✏️ BLOG.IK.AM</h1>
+<p><a href="https://twitter.com/making">@making</a>'s memo</p>
+<body>
+<article>
+    <h2><a href="">Echo Serverを実装して学ぶReactor Nettyによるストリーム処理</a></h2>
+    <p>
+        Updated at <span>2017-10-10T16:26:21Z</span> by <span>Toshiaki Maki</span><br>
+        Created at <span>2017-10-10T15:34:25Z</span> by <span>Toshiaki Maki</span>
+    </p>
+    <div><p>Reactor 3.1.0, Reactor Netty 0.7.0が正式に<a href="https://spring.io/blog/2017/09/28/reactor-bismuth-is-out">リリースされた</a>ので、TCP Server版Hello WorldであるEcho ServerをReactor Nettyで実装してみます。</p>
+<p><strong>目次</strong></p>
+<!-- toc -->
+<ul>
+<li><a href="#-">依存ライブラリの追加</a></li>
+<li><a href="#echo-server-">Echo Serverを実装</a></li>
+<li><a href="#echo-server-">Echo Serverのバッファリング処理</a></li>
+</ul>
+<!-- tocstop -->
+<h3 id="-">依存ライブラリの追加</h3>
+<p>Reactor 3.1.0系のバージョン管理は<code>reactor-bom</code>の<code>Bismuth</code>でメンテナンスされています。これを<code>&lt;dependencyManagement&gt;</code>に設定しておけば<code>&lt;dependencies&gt;</code>内でのバージョン明示は不要です。</p>
+<pre><code class="lang-xml">    &lt;dependencies&gt;
+        &lt;dependency&gt;
+            &lt;groupId&gt;io.projectreactor.ipc&lt;/groupId&gt;
+            &lt;artifactId&gt;reactor-netty&lt;/artifactId&gt;
+        &lt;/dependency&gt;
+        &lt;dependency&gt;
+            &lt;groupId&gt;io.projectreactor&lt;/groupId&gt;
+            &lt;artifactId&gt;reactor-test&lt;/artifactId&gt;
+            &lt;scope&gt;test&lt;/scope&gt;
+        &lt;/dependency&gt;
+    &lt;/dependencies&gt;
+
+    &lt;dependencyManagement&gt;
+        &lt;dependencies&gt;
+            &lt;dependency&gt;
+                &lt;groupId&gt;io.projectreactor&lt;/groupId&gt;
+                &lt;artifactId&gt;reactor-bom&lt;/artifactId&gt;
+                &lt;version&gt;Bismuth-RELEASE&lt;/version&gt;
+                &lt;type&gt;pom&lt;/type&gt;
+                &lt;scope&gt;import&lt;/scope&gt;
+            &lt;/dependency&gt;
+        &lt;/dependencies&gt;
+    &lt;/dependencyManagement&gt;
+</code></pre>
+<h3 id="echo-server-">Echo Serverを実装</h3>
+<p>Reactor Nettyの<code>TcpServer</code>の使い方のテンプレートは次の通りです。</p>
+<pre><code class="lang-java">import org.reactivestreams.Publisher;
+import reactor.core.publisher.Flux;
+import reactor.ipc.netty.NettyInbound;
+import reactor.ipc.netty.NettyOutbound;
+import reactor.ipc.netty.tcp.TcpServer;
+
+import java.util.Optional;
+import java.util.function.BiFunction;
+
+public class EchoServer {
+    public static void main(String[] args) {
+        TcpServer tcpServer = TcpServer.create(&quot;0.0.0.0&quot;, 7777);
+        tcpServer.startAndAwait(new BiFunction&lt;NettyInbound, NettyOutbound, Publisher&lt;Void&gt;&gt;() {
+            @Override
+            public Publisher&lt;Void&gt; apply(NettyInbound inbound, NettyOutbound outbound) {
+                // ここに入力 =&gt; 出力の処理を書く
+                return Flux.never();
+            }
+        });
+    }
+}
+</code></pre>
+<p>サーバーサイドプログラミングに慣れていれば、&quot;ああメッセージの処理ハンドラをラムダで書けばいいんだな&quot;と思うかもしれません。
+これはある意味合っているのですが、通常の&quot;処理ハンドラ&quot;と大きく違うのは、このハンドラ(<code>BiFunction&lt;NettyInbound, NettyOutbound, Publisher&lt;Void&gt;&gt;</code>)が扱うのは1件のメッセージではなく、無限ストリームであるという点です。
+引数の<code>NettyInbound</code>/<code>NettyOutbound</code>はServletの<code>HttpServletRequest</code>/<code>HttpServletResponse</code>のように1リクエスト/レスポンスではなく、このサーバーへの入出力全体を表します。なので、この処理ハンドラの返り値が出力ストリームになるわけでもありません。処理が終わらないように<code>Flux.never()</code>(データは流れないけど終わらないストリーム)を返します。</p>
+<p>入力として扱うデータを文字列に絞りましょう。この場合、入力となる文字列の無限ストリームを<code>Flux</code>で次のように取得できます。</p>
+<pre><code class="lang-java">        tcpServer.startAndAwait(new BiFunction&lt;NettyInbound, NettyOutbound, Publisher&lt;Void&gt;&gt;() {
+            @Override
+            public Publisher&lt;Void&gt; apply(NettyInbound inbound, NettyOutbound outbound) {
+                Flux&lt;String&gt; input = inbound.receive().asString();
+
+                return Flux.never();
+            }
+        });
+</code></pre>
+<p>この入力ストリームを加工して出力ストリームに送ります。
+ここで通常のサーバープログラミングのように、1件ずつ処理したいと考えます。<code>Flux</code>クラスにはデータ1件ごとのコールバックメソッドとして<code>doOnNext(Consumer&lt;T&gt;)</code>が用意されています。これを使うとサーバーサイドのコードは次のようになります。（わかりやすいようにラムダ式を使っていません）</p>
+<pre><code class="lang-java">        tcpServer.startAndAwait(new BiFunction&lt;NettyInbound, NettyOutbound, Publisher&lt;Void&gt;&gt;() {
+            @Override
+            public Publisher&lt;Void&gt; apply(NettyInbound inbound, NettyOutbound outbound) {
+                Flux&lt;String&gt; input = inbound.receive().asString();
+
+                input.doOnNext(new Consumer&lt;String&gt;() {
+                    @Override
+                    public void accept(String message) {
+                      // 文字列メッセージ一件ずつの処理
+                    }
+                }).subscribe();
+
+                return Flux.never();
+            }
+        });
+</code></pre>
+<p>注意点として、入力ストリームの<code>Flux</code>は<code>subscribe</code>メソッドを呼ばないとストリームにデータが流れません。</p>
+<p>出力ストリームにこのメッセージを送信するコードは次の通りです。</p>
+<pre><code class="lang-java">        tcpServer.startAndAwait(new BiFunction&lt;NettyInbound, NettyOutbound, Publisher&lt;Void&gt;&gt;() {
+            @Override
+            public Publisher&lt;Void&gt; apply(NettyInbound inbound, NettyOutbound outbound) {
+                Flux&lt;String&gt; input = inbound.receive().asString();
+
+                input.doOnNext(new Consumer&lt;String&gt;() {
+                    @Override
+                    public void accept(String message) {
+                        outbound.sendString(Mono.just(message))
+                                .then()
+                                .subscribe();
+                    }
+                }).subscribe();
+
+                return Flux.never();
+            }
+        });
+</code></pre>
+<p><code>NettyOutbound.sendString</code>は引数が<code>Publisher&lt;String&gt;</code>なので、<code>String</code>をメッセージを<code>Mono.just</code>で包んでいます。この返り値が出力ストリームになります。この型も<code>NettyOutbound</code>です。これは<code>Publisher&lt;Void&gt;</code>を継承しています。</p>
+<p>入力ストリーム同様に出力ストリームも<code>subscribe</code>しないとデータが流れません。
+ここでは<code>then</code>メソッドで<code>Mono</code>に変換して<code>subscribe</code>します。</p>
+<p>ここまででEcho Serverができました。<code>main</code>メソッドを実行してサーバーを起動時、<code>telnet</code>でTCPサーバーにアクセスします。</p>
+<pre><code>$ telnet localhost 7777
+Trying ::1...
+Connected to localhost.
+Escape character is &#39;^]&#39;.
+hoge &lt;== 入力
+hoge ==&gt; 出力
+foo &lt;== 入力
+foo ==&gt; 出力
+bar &lt;== 入力
+bar ==&gt; 出力
+^]
+telnet&gt; quit
+Connection closed.
+</code></pre><p><code>nc</code>コマンドでも動作確認できます。</p>
+<pre><code>$ echo -n &#39;Hello World!&#39; | nc localhost 7777
+Hello World!
+</code></pre><p>上記のプログラムはラムダ式を使うと次のように書けます。</p>
+<pre><code class="lang-java">    public static void main(String[] args) {
+        TcpServer tcpServer = TcpServer.create(&quot;0.0.0.0&quot;, 7777);
+        tcpServer.startAndAwait((inbound, outbound) -&gt; {
+            Flux&lt;String&gt; input = inbound.receive().asString();
+            input.doOnNext(message -&gt; outbound.sendString(Mono.just(message))
+                    .then()
+                    .subscribe()).subscribe();
+            return Flux.never();
+        });
+    }
+</code></pre>
+<p>実際にメッセージが出力ストリームに流れているかどうかを確認したい場合は、次のように出力メッセージのストリームに<code>log</code>メソッドを追加します。</p>
+<pre><code class="lang-java">    public static void main(String[] args) {
+        TcpServer tcpServer = TcpServer.create(&quot;0.0.0.0&quot;, 7777);
+        tcpServer.startAndAwait((inbound, outbound) -&gt; {
+            Flux&lt;String&gt; input = inbound.receive().asString();
+            input.doOnNext(message -&gt; outbound.sendString(Mono.just(message).log() /*追加*/)
+                    .then()
+                    .subscribe()).subscribe();
+            return Flux.never();
+        });
+    }
+</code></pre>
+<p>これで再起動し、再度メッセージを送ると、次のようなログを確認できます。<code>onNext</code>で出力メッセージが流れていることがわかります。</p>
+<pre><code>[ INFO] (reactor-tcp-nio-2) | onSubscribe([Synchronous Fuseable] Operators.ScalarSubscription)
+[ INFO] (reactor-tcp-nio-2) | request(32)
+[ INFO] (reactor-tcp-nio-2) | onNext(Hello World!)
+[TRACE] (reactor-tcp-nio-2) [id: 0x8984720e, L:/0:0:0:0:0:0:0:1:7777 - R:/0:0:0:0:0:0:0:1:52269] Pending write size = 12
+[ INFO] (reactor-tcp-nio-2) | request(1)
+[ INFO] (reactor-tcp-nio-2) | onComplete()
+</code></pre><p>出力側の<code>subscribe</code>を削除すると<code>onNext</code>ログがでないことを確認できるでしょう。</p>
+<p>少し、リファクタしてみます。</p>
+<p>上記のコードは入力ストリームの<code>doOnNext</code>コールバック内で出力ストリームを作成したため、両方の<code>subscribe</code>が必要でした。
+ここで考え方を変えて、入力ストリームを変換して出力ストリームを作成するようにすると、作成されたストリームを<code>subscribe</code>するだけで入出力両方にデータが流れます。変換したストリームと元のストリームを合流させるには<code>flatMap</code>を使います。<code>flatMap</code>を使えばEchoServerは次のように書き換えられます。</p>
+<pre><code class="lang-java">    public static void main(String[] args) {
+        TcpServer tcpServer = TcpServer.create(&quot;0.0.0.0&quot;, 7777);
+        tcpServer.startAndAwait((inbound, outbound) -&gt; {
+            Flux&lt;String&gt; input = inbound.receive().asString();
+            input.flatMap(message -&gt; outbound.sendString(Mono.just(message)))
+                    .subscribe();
+            return Flux.never();
+        });
+    }
+</code></pre>
+<p>見た目がすっきりしました。</p>
+<blockquote>
+<p>ちなみに、このコードで<code>flatMap</code>を<code>map</code>に変えてもコンパイルは通りますが、データは流れなくなります。この違い、とても重要なので理解してください。</p>
+</blockquote>
+<h3 id="echo-server-">Echo Serverのバッファリング処理</h3>
+<p>ただのEcho Serverだとつまらないので、もう少しストリーム処理っぽい内容に変えてみます。</p>
+<p><code>NettyOutbound.sendString</code>の引数は<code>Publisher&lt;String&gt;</code>でした。つまりこのメソッドはメッセージを1件送るためのメソッドではなく、メッセージのストリームを送るメソッドです。</p>
+<p>ここでは、EchoServerを3件ごとバッファリングして一気に出力するように書き換えます。<code>Flux&lt;String&gt;</code>のストリームを3件ずつの塊ストリームである<code>Flux&lt;Flux&lt;String&gt;&gt;</code>に変換するには<code>window(int)</code>メソッドを使用します。</p>
+<pre><code class="lang-java">    public static void main(String[] args) {
+        TcpServer tcpServer = TcpServer.create(&quot;0.0.0.0&quot;, 7777);
+        tcpServer.startAndAwait((inbound, outbound) -&gt; {
+            Flux&lt;String&gt; input = inbound.receive().asString();
+            input.window(3)
+                    .flatMap(messages -&gt; outbound.sendString(messages))
+                    .subscribe();
+            return Flux.never();
+        });
+    }
+</code></pre>
+<p>これで3件ずつまとめてデータを扱うEchoServerになりました。
+<code>telnet</code>で動作確認してみます。</p>
+<pre><code>$ telnet localhost 7777
+Trying ::1...
+Connected to localhost.
+Escape character is &#39;^]&#39;.
+hoge &lt;== 入力
+foo &lt;== 入力
+bar &lt;== 入力
+hoge ==&gt; 出力
+foo ==&gt; 出力
+bar ==&gt; 出力
+^]
+telnet&gt; quit
+Connection closed.
+</code></pre><p>前の例と異なり、3件単位でデータが流れていることがわかります。</p>
+<hr>
+<p>Echo Serverを実装を通じてReactor Nettyを使ったTCP Serverの作り方及び、ストリームを扱うプログラミングの考え方を簡単に学びました。
+Reactorを使うことでこれまで使ってこなかったストリーム脳で考えないといけない場面が増えてくるので、この記事がとっかかりになればと思います。</p>
+</div>
+</article>
+<footer>
+    <a href="https://blog.ik.am">BLOG.IK.AM</a> — &copy; 2010-2017 <a href="https://twitter.com/making">Toshiaki
+    Maki</a>
+</footer>
+</body>
+</html>

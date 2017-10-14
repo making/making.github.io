@@ -1,0 +1,264 @@
+<html>
+<head>
+    <title>BLOG.IK.AM</title>
+    <meta charset="UTF-8"/>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <link href="https://fonts.googleapis.com/earlyaccess/sawarabimincho.css" rel="stylesheet"/>
+    <style>
+        body {
+            font-size: small;
+            font-family: "Sawarabi Mincho";
+            margin: 20px;
+        }
+
+        a {
+            color: darkslategray;
+            text-decoration: none;
+        }
+
+        article {
+            border: darkgrey solid 1px;
+            border-radius: 10px;
+            padding: 0 10px 10px;
+        }
+
+        footer {
+            margin: 10px;
+        }
+
+        blockquote {
+            color: #464646;
+            font-style: italic;
+            border: darkgrey dotted 1px;
+            border-radius: 5px;
+            margin: 5px 0;
+            padding: 10px;
+        }
+
+        pre {
+            background-color: dimgray;
+            color: white;
+            padding: 5px;
+            border-radius: 5px;
+        }
+
+        h3:before {
+            content: "☕️ ";
+        }
+
+        h4:before {
+            content: "🍃 ";
+        }
+
+        h5:before {
+            content: "✈️️ ";
+        }
+
+        h6:before {
+            content: "☁️ ";
+        }
+
+        pre {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<h1>✏️ BLOG.IK.AM</h1>
+<p><a href="https://twitter.com/making">@making</a>'s memo</p>
+<body>
+<article>
+    <h2><a href="">Concourse CIのVault連携メモ</a></h2>
+    <p>
+        Updated at <span>2017-08-10T14:05:35Z</span> by <span>Toshiaki Maki</span><br>
+        Created at <span>2017-08-06T18:33:51Z</span> by <span>Toshiaki Maki</span>
+    </p>
+    <div><p><strong>目次</strong></p>
+<!-- toc -->
+<ul>
+<li><a href="#vault-">Vaultの設定</a><ul>
+<li><a href="#approle-">AppRole認証の有効化</a></li>
+<li><a href="#concourse-">Concourse用のバックエンドをマウント</a></li>
+<li><a href="#-">ポリシー適用</a></li>
+<li><a href="#approle-">AppRoleの作成</a></li>
+<li><a href="#role-id-">Role IDの取得</a></li>
+<li><a href="#secret-id-">Secret IDの発行</a></li>
+<li><a href="#-">ログイン</a></li>
+</ul>
+</li>
+<li><a href="#concourse-manifest-">ConcourseのManifest修正</a></li>
+<li><a href="#-">パイプラインのデプロイ</a></li>
+<li><a href="#-url">参考URL</a></li>
+</ul>
+<!-- tocstop -->
+<p>Concourse 3.3で追加された<a href="http://concourse.ci/creds.html">Credential Management</a>(Vault対応)を試す。</p>
+<p>今まで、平文で管理されていた機密情報はようやくVaultサーバーで管理することができる。</p>
+<p>今回は外部Vaultサーバーとして、<a href="https://blog.ik.am/entries/423">Cloud FoundryにデプロイしたVault</a>を利用する。<a href="https://run.pivotal.io">Pivotal Web Services</a>では月100円以下(無料期間あり)で管理できるのでおすすめ。</p>
+<p>以下はこのVaultにログインした状態で始める。</p>
+<blockquote>
+<p>&quot;Concourse&quot;という呼び方が正しいが、タイトルではググラビリティ向上のために&quot;Concourse CI&quot;と書いている。</p>
+</blockquote>
+<h3 id="vault-">Vaultの設定</h3>
+<p>Vaultとの連携方式は</p>
+<ul>
+<li><a href="https://www.vaultproject.io/docs/auth/approle.html">AppRole</a></li>
+<li><a href="https://www.vaultproject.io/docs/auth/cert.html">TLS</a></li>
+<li><a href="https://www.vaultproject.io/docs/auth/token.html">Token</a></li>
+</ul>
+<p>が用意されているが、今回はAppRoleを使用する。Tokenの方が設定が楽だけれど、AppRoleの方が推奨っぽい。</p>
+<p>AppRoleもTokenも<a href="https://www.vaultproject.io/docs/concepts/tokens.html#periodic-tokens">Periodic Token</a>にしないと、トークンの有効期限が切れるたびに設定し直しになるので注意。</p>
+<h4 id="approle-">AppRole認証の有効化</h4>
+<pre><code>vault auth-enable approle
+</code></pre><h4 id="concourse-">Concourse用のバックエンドをマウント</h4>
+<pre><code>vault mount -path=/concourse -description=&quot;Secrets for concourse pipelines&quot; generic
+</code></pre><p><code>vault mounts</code>でマウント一覧を確認</p>
+<pre><code>$ vault mounts
+Path        Type       Default TTL  Max TTL  Force No Cache  Replication Behavior  Description
+concourse/  generic    system       system   false           replicated            Secrets for concourse pipelines
+cubbyhole/  cubbyhole  n/a          n/a      false           local                 per-token private secret storage
+secret/     generic    system       system   false           replicated            generic secret storage
+sys/        system     n/a          n/a      false           replicated            system endpoints used for control, policy and debugging
+totp/       totp       system       system   false           replicated            
+transit/    transit    system       system   false           replicated
+</code></pre><h4 id="-">ポリシー適用</h4>
+<p>writeした値をConcourseがreadできるように次のポリシーファイル(<code>policy.hcl</code>)を作成</p>
+<pre><code>path &quot;concourse/*&quot; {
+  policy = &quot;read&quot;
+  capabilities =  [&quot;read&quot;, &quot;list&quot;]
+}
+</code></pre><p>そして設定</p>
+<pre><code>vault policy-write concourse policy.hcl
+</code></pre><h4 id="approle-">AppRoleの作成</h4>
+<p><code>concourse</code>ポリシーを適用する。</p>
+<pre><code>vault write auth/approle/role/concourse secret_id_ttl=10m token_num_uses=10 token_ttl=20m token_max_ttl=30m period=768h secret_id_num_uses=20 policies=concourse
+</code></pre><h4 id="role-id-">Role IDの取得</h4>
+<pre><code>vault read auth/approle/role/concourse/role-id
+</code></pre><p>変数に代入したい場合は、</p>
+<pre><code>export ROLE_ID=`vault read auth/approle/role/concourse/role-id | grep role_id | awk &#39;{print $2}&#39;`
+</code></pre><p>で。</p>
+<h4 id="secret-id-">Secret IDの発行</h4>
+<pre><code>vault write -f auth/approle/role/concourse/secret-id
+</code></pre><p>変数に代入したい場合は、</p>
+<pre><code>export SECRET_ID=`vault write -f auth/approle/role/concourse/secret-id | grep secret_id | head -1 | awk &#39;{print $2}&#39;`
+</code></pre><p>で。</p>
+<p>本記事では次の値を使用する。</p>
+<pre><code>$ echo ${ROLE_ID}
+96bfd1e4-8d9b-447f-81b3-8158233bae07
+$ echo ${SECRET_ID}
+1c9b7f4c-f7dc-445d-9a4b-ce13874fd339
+</code></pre><h4 id="-">ログイン</h4>
+<pre><code>vault write auth/approle/login role_id=${ROLE_ID} secret_id=${SECRET_ID}
+</code></pre><h3 id="concourse-manifest-">ConcourseのManifest修正</h3>
+<pre><code class="lang-yaml">  instance_groups:
+  - name: web
+    jobs:
+    - name: atc
+      properties:
+        # (省略)
+
+        # ここから追加
+        vault:
+          auth:
+            backend: approle
+            params:
+              role_id: ((vault_role_id))
+              secret_id: ((vault_secret_id))
+          url: ((vault_url))
+</code></pre>
+<p>を設定すれば良い。直接manifestファイルを管理してもいいが、BOSH CLI v2の<a href="http://bosh.io/docs/cli-ops-files.html">Operation Files</a>を使うと差分だけ管理できる。今回はこちらを使用する。次のような<code>concourse-vault.yml</code>を作成する。</p>
+<pre><code class="lang-yaml">- type: replace
+  path: /instance_groups/name=web/jobs/name=atc/properties/vault?
+  value:
+    url: ((vault_url))
+    auth:
+      backend: approle
+      params:
+        role_id: ((vault_role_id))
+        secret_id: ((vault_secret_id))
+</code></pre>
+<p><code>bosh deploy</code>時に<code>-o</code>でOperation Fileを指定する。</p>
+<pre><code>bosh deploy -d concourse \
+  concourse.yml \
+  -o ops-files/concourse-vault.yml \
+  -v internal_ip=10.244.0.200 \
+  -v external_ip=concourse.example.com \
+  -v vault_url=https://vault.example.com \
+  -v vault_role_id=96bfd1e4-8d9b-447f-81b3-8158233bae07 \
+  -v vault_secret_id=1c9b7f4c-f7dc-445d-9a4b-ce13874fd339
+</code></pre><p>これでデプロイ可能。</p>
+<blockquote>
+<p>vaultで自己証明書を使用している場合は<code>vault.tls.ca_cert</code>も必要。</p>
+</blockquote>
+<p>CredHubを使用する場合は</p>
+<pre><code>credhub set -n &quot;/Bosh Lite Director/concourse/vault_role_id&quot; --type=value -v 96bfd1e4-8d9b-447f-81b3-8158233bae07
+credhub set -n &quot;/Bosh Lite Director/concourse/vault_secret_id&quot; --type=value -v 1c9b7f4c-f7dc-445d-9a4b-ce13874fd339
+</code></pre><p>を設定し、</p>
+<pre><code>bosh deploy -d concourse \
+  concourse.yml \
+  -o ops-files/concourse-vault.yml \
+  -v internal_ip=10.244.0.200 \
+  -v external_ip=concourse.example.com \
+  -v vault_url=https://vault.example.com
+</code></pre><p>でOK。</p>
+<h3 id="-">パイプラインのデプロイ</h3>
+<p>簡単なパイプライン(<code>hello.yml</code>)を作成。</p>
+<p>これまで外部パラメータは<code>{{param}}</code>で設定していたがこれは穴埋めしただけで、値が丸見えだった。
+Vault連携の場合は<code>((param))</code>で設定する。この場合、<code>param</code>はタスクの実行時にVaultの<code>concourse/&lt;team-name&gt;/&lt;pipeline-name&gt;/&lt;param&gt;</code>から取得する。</p>
+<pre><code class="lang-yaml">jobs:
+- name: hello-world
+  plan:
+  - task: say-hello
+    params:
+      MY_SECRET: ((my-secret))
+    config:
+      platform: linux
+      image_resource:
+        type: docker-image
+        source:
+          repository: ubuntu
+      run:
+        path: bash
+        args:
+        - -c
+        - |
+          echo &quot;MY_SECRET is ${MY_SECRET}&quot;
+</code></pre>
+<p>でデプロイ。</p>
+<pre><code>fly -t dev sp -p hello -c hello.yml 
+fly -t dev up -p hello
+</code></pre><p>パラメータをVaultに設定する。</p>
+<pre><code>vault write concourse/&lt;team-name&gt;/hello/my-secret value=FOO
+</code></pre><blockquote>
+<p>実際は、Teamごとにトークンを発行して、<code>concourse/&lt;team-name&gt;/*</code>以下のみread-writeできる権限を持つポリシーを設定すべき。</p>
+</blockquote>
+<p>ジョブを実行。</p>
+<pre><code>$ fly -t dev tj -j hello/hello-world --watch
+
+started hello/hello-world #12
+
+initializing
+running bash -c echo &quot;MY_SECRET is ${MY_SECRET}&quot;
+
+MY_SECRET is FOO
+succeeded
+</code></pre><p>Vaultから値が取れていることがわかる。</p>
+<blockquote>
+<p>403エラー(permission denied)が出る場合は、ポリシーが設定されていないか、ATCに設定したSECRET IDの有効期限が切れている可能性がある。Vaultのログを要チェック。</p>
+</blockquote>
+<h3 id="-url">参考URL</h3>
+<ul>
+<li><a href="https://github.com/pivotalservices/concourse-pipeline-samples/tree/master/concourse-pipeline-patterns/vault-integration">https://github.com/pivotalservices/concourse-pipeline-samples/tree/master/concourse-pipeline-patterns/vault-integration</a></li>
+<li><a href="https://github.com/rahul-kj/concourse-vault">https://github.com/rahul-kj/concourse-vault</a></li>
+<li><a href="https://www.vaultproject.io/docs/auth/approle.html">https://www.vaultproject.io/docs/auth/approle.html</a></li>
+<li><a href="http://concourse.ci/creds.html">http://concourse.ci/creds.html</a></li>
+</ul>
+<hr>
+<p>次はVaultもConcourseと同時にBOSHでデプロイする方法を試す。</p>
+</div>
+</article>
+<footer>
+    <a href="https://blog.ik.am">BLOG.IK.AM</a> — &copy; 2010-2017 <a href="https://twitter.com/making">Toshiaki
+    Maki</a>
+</footer>
+</body>
+</html>

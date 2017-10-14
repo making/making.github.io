@@ -1,0 +1,1108 @@
+<html>
+<head>
+    <title>BLOG.IK.AM</title>
+    <meta charset="UTF-8"/>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <link href="https://fonts.googleapis.com/earlyaccess/sawarabimincho.css" rel="stylesheet"/>
+    <style>
+        body {
+            font-size: small;
+            font-family: "Sawarabi Mincho";
+            margin: 20px;
+        }
+
+        a {
+            color: darkslategray;
+            text-decoration: none;
+        }
+
+        article {
+            border: darkgrey solid 1px;
+            border-radius: 10px;
+            padding: 0 10px 10px;
+        }
+
+        footer {
+            margin: 10px;
+        }
+
+        blockquote {
+            color: #464646;
+            font-style: italic;
+            border: darkgrey dotted 1px;
+            border-radius: 5px;
+            margin: 5px 0;
+            padding: 10px;
+        }
+
+        pre {
+            background-color: dimgray;
+            color: white;
+            padding: 5px;
+            border-radius: 5px;
+        }
+
+        h3:before {
+            content: "☕️ ";
+        }
+
+        h4:before {
+            content: "🍃 ";
+        }
+
+        h5:before {
+            content: "✈️️ ";
+        }
+
+        h6:before {
+            content: "☁️ ";
+        }
+
+        pre {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<h1>✏️ BLOG.IK.AM</h1>
+<p><a href="https://twitter.com/making">@making</a>'s memo</p>
+<body>
+<article>
+    <h2><a href="">はじめてのSpring WebFlux (その1 - Spring WebFluxを試す)</a></h2>
+    <p>
+        Updated at <span>2017-06-06T18:11:23Z</span> by <span>Toshiaki Maki</span><br>
+        Created at <span>2017-05-08T18:56:28Z</span> by <span>Toshiaki Maki</span>
+    </p>
+    <div><blockquote>
+<p>この記事の内容はSpring 5.0.0.RC1時点でのものです。5.0.0.RELEASE時での動作保証はありません。またSNAPSHOTを使っているため、このままでは動作しないこともあります。</p>
+</blockquote>
+<p><strong>目次</strong></p>
+<!-- toc -->
+<ul>
+<li><a href="#-">はじめに</a></li>
+<li><a href="#-">プロジェクト作成</a></li>
+<li><a href="#-controller-">@Controllerモデル</a><ul>
+<li><a href="#hello-world">Hello World</a></li>
+<li><a href="#-stream">無限Stream</a></li>
+<li><a href="#post-">POSTの例</a></li>
+</ul>
+</li>
+<li><a href="#router-functions-">Router Functionsモデル</a><ul>
+<li><a href="#hello-world">Hello World</a></li>
+<li><a href="#-stream">無限Stream</a></li>
+<li><a href="#post-">POSTの例</a></li>
+</ul>
+</li>
+<li><a href="#-">次回予告</a></li>
+</ul>
+<!-- tocstop -->
+<h3 id="-">はじめに</h3>
+<p><a href="http://docs.spring.io/spring/docs/5.0.0.RC1/spring-framework-reference/web.html#web-reactive">Spring WebFlux</a>はSpring 5から追加された、ノンブロッキングなランタイム上でリアクティブプログラミングできる新しいWebフレームワークです。</p>
+<p><img src="https://qiita-image-store.s3.amazonaws.com/0/1852/55642680-438b-2b75-d957-3e8e0ddcff15.png" alt="image"></p>
+<p>上の図が示す通り、これまでのSpring MVCの横に位置するコンポーネントです。
+これまでのSpring MVCがサーブレットコンテナ上でServlet APIをベースにしてきたフレームワークであったのに対し、
+Spring WebFluxはServlet APIは使用せず、<a href="http://www.reactive-streams.org/">Reactive Streams</a>及びその実装である<a href="https://projectreactor.io/">Reactor</a>をベースとした新しいHTTP API上に実装されています。ランタイムとしてはNetty、Undertow(サーブレットコンテナじゃない方)といったノンブロッキングランタイムが使えます。またServlet 3.1で導入されたNon-Blocking APIを使用したTomcat, Jetty実装も用意されています。ただし、Spring WebFluxからはServlet APIは見えません。</p>
+<p>Spring WebFlux上のプログラミングモデルとしては</p>
+<ul>
+<li>@Controlller</li>
+<li>Router Functions</li>
+</ul>
+<p>の2パターンが用意されています。前者はこれまでSpring MVCで使用してきたアノテーションベースのContoller実装方法そのものです。
+つまりランタイムは変わるけどControllerのプログラミング方法は同じです。
+後者の方はラムダベースの全く新しいControllerの実装方法になります。Node.jsのExpressみたいなものをイメージしていただければと思います。</p>
+<p>本記事では両方の簡単な使い方を紹介します。</p>
+<p>ちなみに詳しくはJava Day Tokyo 2017のD1-D5で話すので聞きに来てください。
+<a href="http://www.oracle.co.jp/events/javaday/2017">http://www.oracle.co.jp/events/javaday/2017</a></p>
+<h3 id="-">プロジェクト作成</h3>
+<p>まずはプロジェクトを作成します。Spring Boot 2.0からSpring 5に対応しています。</p>
+<p>curlコマンドで雛形プロジェクトを作成します。Windowsの場合はBashから実行してください。</p>
+<pre><code>curl https://start.spring.io/starter.tgz \
+       -d bootVersion=2.0.0.BUILD-SNAPSHOT \
+       -d artifactId=hello-webflux \
+       -d baseDir=hello-webflux \
+       -d dependencies=webflux \
+       -d applicationName=HelloWebFluxApplication | tar -xzvf -
+</code></pre><p>できた<code>hello-webflux</code>プロジェクトをIDEで開いてください。</p>
+<blockquote>
+<p>以下の説明で、Streamと書いている場合は連続するデータのことを指し、<code>Stream</code>と書いている場合はJava8の<code>java.util.stream.Stream</code>を指します。</p>
+</blockquote>
+<h3 id="-controller-">@Controllerモデル</h3>
+<p>まずは@ControllerモデルのHello Worldを試します。</p>
+<h4 id="hello-world">Hello World</h4>
+<p><code>src/main/java/com/example/HelloController.java</code>を作成して下さい。</p>
+<pre><code class="lang-java">package com.example;
+
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import reactor.core.publisher.Flux;
+
+@RestController
+public class HelloController {
+
+    @GetMapping(&quot;/&quot;)
+    Flux&lt;String&gt; hello() {
+        return Flux.just(&quot;Hello&quot;, &quot;World&quot;);
+    }
+}
+</code></pre>
+<p><code>Flux</code>に見慣れない方はいると思いますが、ぱっと見、今まで書いてきたSpring MVCのControllerと全く同じです。</p>
+<p><code>com.example.HelloWebFluxApplication</code>クラスの<code>main</code>メソッドを実行するとSpring WebFluxのアプリケーションが立ち上がります。</p>
+<pre><code>  .   ____          _            __ _ _
+ /\\ / ___&#39;_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | &#39;_ | &#39;_| | &#39;_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  &#39;  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+ :: Spring Boot ::  (v2.0.0.BUILD-SNAPSHOT)
+
+2017-05-09 03:25:20.123  INFO 92125 --- [           main] com.example.HelloWebFluxApplication      : Starting HelloWebFluxApplication on jpxxmakitm1.corp.emc.com with PID 92125 (/private/tmp/hello-webflux/target/classes started by makit in /private/tmp/hello-webflux)
+2017-05-09 03:25:20.128  INFO 92125 --- [           main] com.example.HelloWebFluxApplication      : No active profile set, falling back to default profiles: default
+2017-05-09 03:25:20.199  INFO 92125 --- [           main] .r.c.ReactiveWebServerApplicationContext : Refreshing org.springframework.boot.web.reactive.context.ReactiveWebServerApplicationContext@769e7ee8: startup date [Tue May 09 03:25:20 JST 2017]; root of context hierarchy
+2017-05-09 03:25:20.877  WARN 92125 --- [           main] o.h.v.m.ParameterMessageInterpolator     : HV000184: ParameterMessageInterpolator has been chosen, EL interpolation will not be supported
+2017-05-09 03:25:21.045  WARN 92125 --- [           main] o.h.v.m.ParameterMessageInterpolator     : HV000184: ParameterMessageInterpolator has been chosen, EL interpolation will not be supported
+2017-05-09 03:25:21.269  INFO 92125 --- [           main] s.w.r.r.m.a.RequestMappingHandlerMapping : Mapped &quot;{[/],methods=[GET]}&quot; onto reactor.core.publisher.Flux&lt;java.lang.String&gt; com.example.HelloController.hello()
+2017-05-09 03:25:21.296  INFO 92125 --- [           main] o.s.w.r.handler.SimpleUrlHandlerMapping  : Mapped URL path [/webjars/**] onto handler of type [class org.springframework.web.reactive.resource.ResourceWebHandler]
+2017-05-09 03:25:21.297  INFO 92125 --- [           main] o.s.w.r.handler.SimpleUrlHandlerMapping  : Mapped URL path [/**] onto handler of type [class org.springframework.web.reactive.resource.ResourceWebHandler]
+2017-05-09 03:25:21.381  INFO 92125 --- [           main] o.s.w.r.r.m.a.ControllerMethodResolver   : Looking for @ControllerAdvice: org.springframework.boot.web.reactive.context.ReactiveWebServerApplicationContext@769e7ee8: startup date [Tue May 09 03:25:20 JST 2017]; root of context hierarchy
+2017-05-09 03:25:21.947  INFO 92125 --- [           main] o.s.j.e.a.AnnotationMBeanExporter        : Registering beans for JMX exposure on startup
+2017-05-09 03:25:22.042  INFO 92125 --- [           main] o.s.b.web.embedded.netty.NettyWebServer  : Netty started on port(s): 8080
+2017-05-09 03:25:22.048  INFO 92125 --- [           main] com.example.HelloWebFluxApplication      : Started HelloWebFluxApplication in 3.044 seconds (JVM running for 3.679)
+</code></pre><p>いつものSpring BootならTomcatが立ち上がっていましたが、今回はNettyが起動していることがわかります。</p>
+<p><code>curl</code>で<code>localhost:8080</code>にアクセスしてください。</p>
+<pre><code>$ curl -v localhost:8080
+&gt; GET / HTTP/1.1
+&gt; Host: localhost:8080
+&gt; User-Agent: curl/7.43.0
+&gt; Accept: */*
+&gt; 
+&lt; HTTP/1.1 200 OK
+&lt; transfer-encoding: chunked
+&lt; Content-Type: text/plain;charset=UTF-8
+&lt; 
+HelloWorld
+</code></pre><p>HellWorldが表示されました。</p>
+<p><code>Flux</code>はReactive Streamsの<code>Publisher</code>を実装したN要素のストリームを表現するReactorのクラスです。
+デフォルトでは<code>text/plain</code>でレスポンスが帰りましたが、</p>
+<ul>
+<li>Server-Sent Event</li>
+<li>JSON Stream</li>
+</ul>
+<p>で返すこともできます。</p>
+<p>Server-Sent Eventで返す場合は<code>Accept</code>ヘッダに<code>text/event-stream</code>を指定してください。</p>
+<pre><code>$ curl -v localhost:8080 -H &#39;Accept: text/event-stream&#39;
+&gt; GET / HTTP/1.1
+&gt; Host: localhost:8080
+&gt; User-Agent: curl/7.43.0
+&gt; Accept: text/event-stream
+&gt; 
+&lt; HTTP/1.1 200 OK
+&lt; transfer-encoding: chunked
+&lt; Content-Type: text/event-stream
+&lt; 
+data:Hello
+
+data:World
+</code></pre><p>JSON Streamで返すときは<code>Accept</code>ヘッダに<code>application/stream+json</code>を指定しますが、今回のケース（文字列ストリーム）では見た目が<code>text/plain</code>の時と変わりません。</p>
+<pre><code>$ curl -v localhost:8080 -H &#39;Accept: application/stream+json&#39;
+&gt; GET / HTTP/1.1
+&gt; Host: localhost:8080
+&gt; User-Agent: curl/7.43.0
+&gt; Accept: application/stream+json
+&gt; 
+&lt; HTTP/1.1 200 OK
+&lt; transfer-encoding: chunked
+&lt; Content-Type: application/stream+json;charset=UTF-8
+&lt; 
+HelloWorld
+</code></pre><h4 id="-stream">無限Stream</h4>
+<p>次はもう少しStream感のあるレスポンスを返しましょう。</p>
+<p><code>Flux</code>は<code>Stream</code>から生成することもできます。</p>
+<p>次の<code>stream</code>メソッドを作成して、無限<code>Stream</code>を作成し、そのうちの10件を<code>Flux</code>に変換して返却してください。</p>
+<pre><code class="lang-java">package com.example;
+
+import java.util.Collections;
+import java.util.Map;
+import java.util.stream.Stream;
+
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import reactor.core.publisher.Flux;
+
+@RestController
+public class HelloController {
+
+    @GetMapping(&quot;/&quot;)
+    Flux&lt;String&gt; hello() {
+        return Flux.just(&quot;Hello&quot;, &quot;World&quot;);
+    }
+
+    @GetMapping(&quot;/stream&quot;)
+    Flux&lt;Map&lt;String, Integer&gt;&gt; stream() {
+        Stream&lt;Integer&gt; stream = Stream.iterate(0, i -&gt; i + 1); // Java8の無限Stream
+        return Flux.fromStream(stream.limit(10))
+                .map(i -&gt; Collections.singletonMap(&quot;value&quot;, i));
+    }
+}
+</code></pre>
+<p><code>com.example.HelloWebFluxApplication</code>クラスを再起動してください。</p>
+<p><code>/stream</code>に対する三種類のレスポンスはそれぞれ、</p>
+<p>通常のJSON</p>
+<pre><code>$ curl -v localhost:8080/stream
+&gt; GET /stream HTTP/1.1
+&gt; Host: localhost:8080
+&gt; User-Agent: curl/7.43.0
+&gt; Accept: */*
+&gt; 
+&lt; HTTP/1.1 200 OK
+&lt; transfer-encoding: chunked
+&lt; Content-Type: application/json;charset=UTF-8
+&lt; 
+[{&quot;value&quot;:0},{&quot;value&quot;:1},{&quot;value&quot;:2},{&quot;value&quot;:3},{&quot;value&quot;:4},{&quot;value&quot;:5},{&quot;value&quot;:6},{&quot;value&quot;:7},{&quot;value&quot;:8},{&quot;value&quot;:9}]
+</code></pre><p>Server-Sent Event</p>
+<pre><code>$ curl -v localhost:8080/stream -H &#39;Accept: text/event-stream&#39;
+&gt; GET /stream HTTP/1.1
+&gt; Host: localhost:8080
+&gt; User-Agent: curl/7.43.0
+&gt; Accept: text/event-stream
+&gt; 
+&lt; HTTP/1.1 200 OK
+&lt; transfer-encoding: chunked
+&lt; Content-Type: text/event-stream
+&lt; 
+data:{&quot;value&quot;:0}
+
+data:{&quot;value&quot;:1}
+
+data:{&quot;value&quot;:2}
+
+data:{&quot;value&quot;:3}
+
+data:{&quot;value&quot;:4}
+
+data:{&quot;value&quot;:5}
+
+data:{&quot;value&quot;:6}
+
+data:{&quot;value&quot;:7}
+
+data:{&quot;value&quot;:8}
+</code></pre><p>JSON Stream</p>
+<pre><code>$ curl -v localhost:8080/stream -H &#39;Accept: application/stream+json&#39;
+&gt; GET /stream HTTP/1.1
+&gt; Host: localhost:8080
+&gt; User-Agent: curl/7.43.0
+&gt; Accept: application/stream+json
+&gt; 
+&lt; HTTP/1.1 200 OK
+&lt; transfer-encoding: chunked
+&lt; Content-Type: application/stream+json;charset=UTF-8
+&lt; 
+{&quot;value&quot;:0}
+{&quot;value&quot;:1}
+{&quot;value&quot;:2}
+{&quot;value&quot;:3}
+{&quot;value&quot;:4}
+{&quot;value&quot;:5}
+{&quot;value&quot;:6}
+{&quot;value&quot;:7}
+{&quot;value&quot;:8}
+{&quot;value&quot;:9}
+</code></pre><p>となります。これで普通のJSON(<code>application/json</code>)とJSON Stream(<code>application/stream+json</code>)の違いがわかったと思います。</p>
+<p>実は<code>limit</code>をつける必要はなく、そのまま無限Streamを返すこともできます。
+これは普通のControllerの発想だと永遠にレスポンスが返ってこないことになります。実は<code>application/json</code>の場合はレスポンスが返りません(Integerがオーバーフローしたら返るかも？)。
+なのでまずはあえて<code>limit</code>をつけました。Server-Sent EventとJSON Streamは無限Streamを返すこともできます。
+試してみましょう。</p>
+<pre><code class="lang-java">package com.example;
+
+import java.util.Collections;
+import java.util.Map;
+import java.util.stream.Stream;
+
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import reactor.core.publisher.Flux;
+
+@RestController
+public class HelloController {
+
+    @GetMapping(&quot;/&quot;)
+    Flux&lt;String&gt; hello() {
+        return Flux.just(&quot;Hello&quot;, &quot;World&quot;);
+    }
+
+    @GetMapping(&quot;/stream&quot;)
+    Flux&lt;Map&lt;String, Integer&gt;&gt; stream() {
+        Stream&lt;Integer&gt; stream = Stream.iterate(0, i -&gt; i + 1);
+        return Flux.fromStream(stream) // limitを外す
+                                .map(i -&gt; Collections.singletonMap(&quot;value&quot;, i));
+    }
+}
+</code></pre>
+<p>Server-Sent EventもJSON Streamも次のように返りますが、Ctrl+Cで止めるまですごいスピードでストリームが流れます。</p>
+<p>Server-Sent Event</p>
+<pre><code>$ curl -v localhost:8080/stream -H &#39;Accept: text/event-stream&#39;
+&gt; GET /stream HTTP/1.1
+&gt; Host: localhost:8080
+&gt; User-Agent: curl/7.43.0
+&gt; Accept: text/event-stream
+&gt; 
+&lt; HTTP/1.1 200 OK
+&lt; transfer-encoding: chunked
+&lt; Content-Type: text/event-stream
+&lt; 
+data:{&quot;value&quot;:0}
+
+data:{&quot;value&quot;:1}
+
+data:{&quot;value&quot;:2}
+
+data:{&quot;value&quot;:3}
+
+data:{&quot;value&quot;:4}
+
+data:{&quot;value&quot;:5}
+
+data:{&quot;value&quot;:6}
+
+data:{&quot;value&quot;:7}
+
+data:{&quot;value&quot;:8}
+
+data:{&quot;value&quot;:9}
+
+data:{&quot;value&quot;:10}
+
+data:{&quot;value&quot;:11}
+
+data:{&quot;value&quot;:12}
+
+data:{&quot;value&quot;:13}
+
+data:{&quot;value&quot;:14}
+
+...
+</code></pre><p>JSON Stream</p>
+<pre><code>$ curl -v localhost:8080/stream -H &#39;Accept: application/stream+json&#39;
+&gt; GET /stream HTTP/1.1
+&gt; Host: localhost:8080
+&gt; User-Agent: curl/7.43.0
+&gt; Accept: application/stream+json
+&gt; 
+&lt; HTTP/1.1 200 OK
+&lt; transfer-encoding: chunked
+&lt; Content-Type: application/stream+json;charset=UTF-8
+&lt; 
+{&quot;value&quot;:0}
+{&quot;value&quot;:1}
+{&quot;value&quot;:2}
+{&quot;value&quot;:3}
+{&quot;value&quot;:4}
+{&quot;value&quot;:5}
+{&quot;value&quot;:6}
+{&quot;value&quot;:7}
+{&quot;value&quot;:8}
+{&quot;value&quot;:9}
+{&quot;value&quot;:10}
+{&quot;value&quot;:11}
+{&quot;value&quot;:12}
+{&quot;value&quot;:13}
+{&quot;value&quot;:14}
+...
+</code></pre><p>Streamをゆっくり返したい場合は<code>Flux.interval(Duration)</code>とzipしたStreamを返します。</p>
+<pre><code class="lang-java">package com.example;
+
+import java.time.Duration;
+import java.util.Collections;
+import java.util.Map;
+import java.util.stream.Stream;
+
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import reactor.core.publisher.Flux;
+
+@RestController
+public class HelloController {
+
+    @GetMapping(&quot;/&quot;)
+    Flux&lt;String&gt; hello() {
+        return Flux.just(&quot;Hello&quot;, &quot;World&quot;);
+    }
+
+    @GetMapping(&quot;/stream&quot;)
+    Flux&lt;Map&lt;String, Integer&gt;&gt; stream() {
+        Stream&lt;Integer&gt; stream = Stream.iterate(0, i -&gt; i + 1);
+        return Flux.fromStream(stream).zipWith(Flux.interval(Duration.ofSeconds(1)))
+                .map(tuple -&gt; Collections.singletonMap(&quot;value&quot;, tuple.getT1() /* タプルの1つ目要素 = Stream&lt;Integer&gt;の要素 */));
+    }
+}
+</code></pre>
+<p>これで毎秒1件ずつゆっくりデータが返ってきます。</p>
+<pre><code>$ curl -v localhost:8080/stream -H &#39;Accept: application/stream+json&#39;
+&gt; GET /stream HTTP/1.1
+&gt; Host: localhost:8080
+&gt; User-Agent: curl/7.43.0
+&gt; Accept: application/stream+json
+&gt; 
+&lt; HTTP/1.1 200 OK
+&lt; transfer-encoding: chunked
+&lt; Content-Type: application/stream+json;charset=UTF-8
+&lt; 
+{&quot;value&quot;:0}
+{&quot;value&quot;:1}
+{&quot;value&quot;:2}
+{&quot;value&quot;:3}
+{&quot;value&quot;:4}
+{&quot;value&quot;:5}
+</code></pre><h4 id="post-">POSTの例</h4>
+<p>次にPOSTの例も試します。</p>
+<p>リクエストボディの文字列を大文字にして返す<code>echo</code>メソッドを作ります。</p>
+<pre><code class="lang-java">package com.example;
+
+import java.time.Duration;
+import java.util.Collections;
+import java.util.Map;
+import java.util.stream.Stream;
+
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+@RestController
+public class HelloController {
+
+    @GetMapping(&quot;/&quot;)
+    Flux&lt;String&gt; hello() {
+        return Flux.just(&quot;Hello&quot;, &quot;World&quot;);
+    }
+
+    @GetMapping(&quot;/stream&quot;)
+    Flux&lt;Map&lt;String, Integer&gt;&gt; stream() {
+        Stream&lt;Integer&gt; stream = Stream.iterate(0, i -&gt; i + 1);
+        return Flux.fromStream(stream).zipWith(Flux.interval(Duration.ofSeconds(1)))
+                .map(tuple -&gt; Collections.singletonMap(&quot;value&quot;, tuple.getT1()));
+    }
+
+    @PostMapping(&quot;/echo&quot;)
+    Mono&lt;String&gt; echo(@RequestBody Mono&lt;String&gt; body) {
+        return body.map(String::toUpperCase);
+    }
+}
+</code></pre>
+<p>普通のControllerと同じく、<code>@RequestBody</code>でリクエストボディを受け取れます。Spring WebFluxではリクエストボディ(ここでは文字列)を<code>Mono</code>にラップして受け取ることで、非同期で処理をchain / composeすることができます。
+(ちなみに<code>Mono</code>でラップせず<code>String</code>で受けた場合はノンブロッキングで同期な処理になります。)
+この例ではリクエストボディを大文字に変換する<code>map</code>の結果の<code>Mono</code>をそのまま返しています。<code>Mono</code>は1または0要素の<code>Publisher</code>です。</p>
+<pre><code>$ curl localhost:8080/echo -d hoge
+HOGE
+</code></pre><p><code>Mono</code>の部分を<code>Flux</code>に変えてもOKです。一件しか扱わないことを前提の処理であれば<code>Mono</code>を使った方が明示的です。
+逆に複数件数のStreamを扱いたい場合は<code>Flux</code>にします。</p>
+<p>次の例では<code>@PostMapping</code>をつけた<code>stream</code>メソッドにでStreamを<code>Flux</code>で受け取り、キー<code>value</code>に対する値の数値を2倍にした値をキー<code>foo</code>に入れた<code>Map</code>に変換して返却しています。</p>
+<pre><code class="lang-java">package com.example;
+
+import java.time.Duration;
+import java.util.Collections;
+import java.util.Map;
+import java.util.stream.Stream;
+
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+@RestController
+public class HelloController {
+
+    @GetMapping(&quot;/&quot;)
+    Flux&lt;String&gt; hello() {
+        return Flux.just(&quot;Hello&quot;, &quot;World&quot;);
+    }
+
+    @GetMapping(&quot;/stream&quot;)
+    Flux&lt;Map&lt;String, Integer&gt;&gt; stream() {
+        Stream&lt;Integer&gt; stream = Stream.iterate(0, i -&gt; i + 1);
+        return Flux.fromStream(stream).zipWith(Flux.interval(Duration.ofSeconds(1)))
+                .map(tuple -&gt; Collections.singletonMap(&quot;value&quot;,
+                        tuple.getT1()));
+    }
+
+    @PostMapping(&quot;/echo&quot;)
+    Mono&lt;String&gt; echo(@RequestBody Mono&lt;String&gt; body) {
+        return body.map(String::toUpperCase);
+    }
+
+    @PostMapping(&quot;/stream&quot;)
+    Flux&lt;Map&lt;String, Integer&gt;&gt; stream(@RequestBody Flux&lt;Map&lt;String, Integer&gt;&gt; body) {
+        return body.map(m -&gt; Collections.singletonMap(&quot;double&quot;, m.get(&quot;value&quot;) * 2));
+    }
+}
+</code></pre>
+<p>JSON StreamでPOSTしてServer-Sent Eventで受信するように<code>Content-Type</code>ヘッダと<code>Accept</code>ヘッダを指定します。</p>
+<pre><code>$ curl -v localhost:8080/stream -d &#39;{&quot;value&quot;:1}{&quot;value&quot;:2}{&quot;value&quot;:3}&#39; -H &#39;Content-Type: application/stream+json&#39;  -H &#39;Accept: text/event-stream&#39;
+&gt; POST /stream HTTP/1.1
+&gt; Host: localhost:8080
+&gt; User-Agent: curl/7.43.0
+&gt; Content-Type: application/stream+json
+&gt; Accept: text/event-stream
+&gt; Content-Length: 33
+&gt; 
+&lt; HTTP/1.1 200 OK
+&lt; transfer-encoding: chunked
+&lt; Content-Type: text/event-stream
+&lt; 
+data:{&quot;double&quot;:2}
+
+data:{&quot;double&quot;:4}
+
+data:{&quot;double&quot;:6}
+</code></pre><h3 id="router-functions-">Router Functionsモデル</h3>
+<p>次にもう一つのプログラミングモデルであるRouter Functionsを試します。</p>
+<p>Route FunctionsではPOJOに<code>@RestController</code>や<code>@GetMapping</code>などのアノテーションをつけてルーティングを定義する代わりに、
+パスとハンドラー関数(ラムダ)の組み合わせでルーティングを定義します。</p>
+<p>Spring Boot 2.0では現状、Router Functionsと@Controllerモデルは共存できないので(両方使うと@Controllerが無視される？)、先ほど作成した<code>HelloController</code>を削除してください。</p>
+<h4 id="hello-world">Hello World</h4>
+<p>@Controllerの時と同じようにGET /で<code>Flux</code>のHello Worldを返すRoutingの定義を書きましょう。Spring Boot 2.0では<code>RouterFunction&lt;ServerResponse&gt;</code>なBean定義があれば、それをRouter Functionsのルーティング定義とみなします。</p>
+<p>まずは簡単に、Bean定義中にルーティング定義を直接書きます。</p>
+<pre><code class="lang-java">package com.example;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.web.reactive.function.server.RequestPredicates;
+import org.springframework.web.reactive.function.server.RouterFunction;
+import org.springframework.web.reactive.function.server.RouterFunctions;
+import org.springframework.web.reactive.function.server.ServerResponse;
+
+import reactor.core.publisher.Flux;
+
+@SpringBootApplication
+public class HelloWebFluxApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(HelloWebFluxApplication.class, args);
+    }
+
+    @Bean
+    RouterFunction&lt;ServerResponse&gt; routes() {
+        return RouterFunctions.route(RequestPredicates.GET(&quot;/&quot;), req -&gt; ServerResponse
+                .ok().body(Flux.just(&quot;Hello&quot;, &quot;World!&quot;), String.class));
+    }
+}
+</code></pre>
+<p>個人的には<code>RouterFunctions.*</code>と<code>RequestPredicates.*</code>と<code>ServerResponse.*</code>をstatic importするのが好みです。IntelliJ IDEAならOption+Enterで&quot;Add static import for ...&quot;を選択。</p>
+<p>static importすると次のように書けます。</p>
+<pre><code class="lang-java">package com.example;
+
+import static org.springframework.web.reactive.function.server.RequestPredicates.GET;
+import static org.springframework.web.reactive.function.server.RouterFunctions.route;
+import static org.springframework.web.reactive.function.server.ServerResponse.ok;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.web.reactive.function.server.RouterFunction;
+import org.springframework.web.reactive.function.server.ServerResponse;
+
+import reactor.core.publisher.Flux;
+
+@SpringBootApplication
+public class HelloWebFluxApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(HelloWebFluxApplication.class, args);
+    }
+
+    @Bean
+    RouterFunction&lt;ServerResponse&gt; routes() {
+        return route(GET(&quot;/&quot;),
+                req -&gt; ok().body(Flux.just(&quot;Hello&quot;, &quot;World!&quot;), String.class));
+    }
+}
+</code></pre>
+<p><code>HelloWebFluxApplication</code>を再起動して、<code>curl</code>で<code>localhost:8080</code>にアクセスしてください。</p>
+<pre><code>$ curl -v localhost:8080
+&gt; GET / HTTP/1.1
+&gt; Host: localhost:8080
+&gt; User-Agent: curl/7.43.0
+&gt; Accept: */*
+&gt; 
+&lt; HTTP/1.1 200 OK
+&lt; transfer-encoding: chunked
+&lt; Content-Type: text/plain;charset=UTF-8
+&lt; 
+Hello World
+</code></pre><p>Router Functionsの場合、アノテーションの読み込み(= Reflection処理)がないため、原理的には@Controllerよりも若干速いはずです。</p>
+<blockquote>
+<p>なお、<code>Publisher</code>ではなく、ハードコード文字列など同期なレスポンスボディを返せば良い場合は、次のように<code>syncBody</code>と言うショートカットメソッドも用意されています。</p>
+<pre><code class="lang-java">package com.example;
+
+import static org.springframework.web.reactive.function.server.RequestPredicates.GET;
+import static org.springframework.web.reactive.function.server.RouterFunctions.route;
+import static org.springframework.web.reactive.function.server.ServerResponse.ok;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.web.reactive.function.server.RouterFunction;
+import org.springframework.web.reactive.function.server.ServerResponse;
+
+@SpringBootApplication
+public class HelloWebFluxApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(HelloWebFluxApplication.class, args);
+    }
+
+    @Bean
+    RouterFunction&lt;ServerResponse&gt; routes() {
+        return route(GET(&quot;/&quot;), req -&gt; ok().syncBody(&quot;Hello World!&quot;));
+    }
+}
+</code></pre>
+<p>もっというと<code>body(Publisher&lt;T&gt; publisher, T clazz)</code>は次の処理のショートカットです。</p>
+<pre><code class="lang-java">package com.example;
+
+import static org.springframework.web.reactive.function.server.RequestPredicates.GET;
+import static org.springframework.web.reactive.function.server.RouterFunctions.route;
+import static org.springframework.web.reactive.function.server.ServerResponse.ok;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.web.reactive.function.BodyInserters;
+import org.springframework.web.reactive.function.server.RouterFunction;
+import org.springframework.web.reactive.function.server.ServerResponse;
+
+import reactor.core.publisher.Flux;
+
+@SpringBootApplication
+public class HelloWebFluxApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(HelloWebFluxApplication.class, args);
+    }
+
+    @Bean
+    RouterFunction&lt;ServerResponse&gt; routes() {
+        return route(GET(&quot;/&quot;), req -&gt; ok().body(
+                BodyInserters.fromPublisher(Flux.just(&quot;Hello&quot;, &quot;World!&quot;), String.class)));
+    }
+}
+</code></pre>
+<p>これもstatic importすると次のように書けます。</p>
+<pre><code class="lang-java">package com.example;
+
+import static org.springframework.web.reactive.function.BodyInserters.fromPublisher;
+import static org.springframework.web.reactive.function.server.RequestPredicates.GET;
+import static org.springframework.web.reactive.function.server.RouterFunctions.route;
+import static org.springframework.web.reactive.function.server.ServerResponse.ok;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.web.reactive.function.server.RouterFunction;
+import org.springframework.web.reactive.function.server.ServerResponse;
+
+import reactor.core.publisher.Flux;
+
+@SpringBootApplication
+public class HelloWebFluxApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(HelloWebFluxApplication.class, args);
+    }
+
+    @Bean
+    RouterFunction&lt;ServerResponse&gt; routes() {
+        return route(GET(&quot;/&quot;), req -&gt; ok()
+                .body(fromPublisher(Flux.just(&quot;Hello&quot;, &quot;World!&quot;), String.class)));
+    }
+}
+</code></pre>
+<p>レスポンスボディの指定をこだわる場合は<code>BodyInserters</code>にいろいろメソッドが用意されています。</p>
+</blockquote>
+<p>さて、Bean定義中にラムダでRouting定義を書ききっても良いですが、量が多くなると見通しが悪くなるので、通常はHandlerクラスを用意して、メソッド参照します。</p>
+<p><code>src/main/java/com/example/HelloHandler.java</code>を作成して、Hello Worldの処理を移しましょう。</p>
+<pre><code class="lang-java">package com.example;
+
+import static org.springframework.web.reactive.function.server.ServerResponse.ok;
+
+import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.server.ServerRequest;
+import org.springframework.web.reactive.function.server.ServerResponse;
+
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+@Component
+public class HelloHandler {
+
+    public Mono&lt;ServerResponse&gt; hello(ServerRequest req) {
+        return ok().body(Flux.just(&quot;Hello&quot;, &quot;World!&quot;), String.class);
+    }
+}
+</code></pre>
+<p>Bean定義を次のように変えます。</p>
+<pre><code class="lang-java">package com.example;
+
+import static org.springframework.web.reactive.function.server.RequestPredicates.GET;
+import static org.springframework.web.reactive.function.server.RouterFunctions.route;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.web.reactive.function.server.RouterFunction;
+import org.springframework.web.reactive.function.server.ServerResponse;
+
+@SpringBootApplication
+public class HelloWebFluxApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(HelloWebFluxApplication.class, args);
+    }
+
+    @Bean
+    RouterFunction&lt;ServerResponse&gt; routes(HelloHandler helloHandler) {
+        return route(GET(&quot;/&quot;), helloHandler::hello);
+    }
+}
+</code></pre>
+<p>リクエストの処理だけでなく、Routing定義もHandlerにもたせたい場合は次のような<code>routes</code>メソッドをHandler側に作るのが<a href="https://github.com/snicoll-scratches/functional-web-playground/pull/4">オススメ</a>です。</p>
+<pre><code class="lang-java">package com.example;
+
+import static org.springframework.web.reactive.function.server.RequestPredicates.GET;
+import static org.springframework.web.reactive.function.server.RouterFunctions.route;
+import static org.springframework.web.reactive.function.server.ServerResponse.ok;
+
+import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.server.RouterFunction;
+import org.springframework.web.reactive.function.server.ServerRequest;
+import org.springframework.web.reactive.function.server.ServerResponse;
+
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+@Component
+public class HelloHandler {
+
+    public RouterFunction&lt;ServerResponse&gt; routes() {
+        return route(GET(&quot;/&quot;), this::hello);
+    }
+
+    Mono&lt;ServerResponse&gt; hello(ServerRequest req) {
+        return ok().body(Flux.just(&quot;Hello&quot;, &quot;World!&quot;), String.class);
+    }
+}
+</code></pre>
+<p>Bean定義がHandlerの<code>routes</code>を呼び出すだけです。</p>
+<pre><code class="lang-java">package com.example;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.web.reactive.function.server.RouterFunction;
+import org.springframework.web.reactive.function.server.ServerResponse;
+
+@SpringBootApplication
+public class HelloWebFluxApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(HelloWebFluxApplication.class, args);
+    }
+
+    @Bean
+    RouterFunction&lt;ServerResponse&gt; routes(HelloHandler helloHandler) {
+        return helloHandler.routes();
+    }
+}
+</code></pre>
+<p>このようにした場合、複数のHandlerの<code>routes</code>を合成することもでき、見通しがよりよくなります。</p>
+<pre><code class="lang-java">    @Bean
+    RouterFunction&lt;ServerResponse&gt; routes(HelloHandler helloHandler, FooHandler fooHandler) {
+        return helloHandler.routes().and(fooHandler.routes());
+    }
+</code></pre>
+<h4 id="-stream">無限Stream</h4>
+<p>@Controllerの場合とほぼ同じですが、<code>Accept</code>ヘッダによるContent-Negotiationが(多分)なく、レスポンス作成時に<code>contentType</code>メソッドでContent-Typeを明示します。</p>
+<p>Routing定義は<code>routes</code>メソッド内に<code>addRoute</code>メソッドでchainできます。</p>
+<pre><code class="lang-java">package com.example;
+
+import static org.springframework.web.reactive.function.server.RequestPredicates.GET;
+import static org.springframework.web.reactive.function.server.RouterFunctions.route;
+import static org.springframework.web.reactive.function.server.ServerResponse.ok;
+
+import java.util.stream.Stream;
+
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.server.RouterFunction;
+import org.springframework.web.reactive.function.server.ServerRequest;
+import org.springframework.web.reactive.function.server.ServerResponse;
+
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+@Component
+public class HelloHandler {
+
+    public RouterFunction&lt;ServerResponse&gt; routes() {
+        return route(GET(&quot;/&quot;), this::hello)
+                .andRoute(GET(&quot;/stream&quot;), this::stream);
+    }
+
+    Mono&lt;ServerResponse&gt; hello(ServerRequest req) {
+        return ok().body(Flux.just(&quot;Hello&quot;, &quot;World!&quot;), String.class);
+    }
+
+    Mono&lt;ServerResponse&gt; stream(ServerRequest req) {
+        Stream&lt;Integer&gt; stream = Stream.iterate(0, i -&gt; i + 1);
+        Flux&lt;Integer&gt; flux = Flux.fromStream(stream);
+        return ok().contentType(MediaType.APPLICATION_STREAM_JSON).body(flux,
+                Integer.class);
+    }
+}
+</code></pre>
+<p>Content-Typeを明示しているのでアクセスする際は<code>Accept</code>ヘッダ不要です。</p>
+<pre><code>$ curl -v localhost:8080/stream 
+&gt; GET /stream HTTP/1.1
+&gt; Host: localhost:8080
+&gt; User-Agent: curl/7.43.0
+&gt; Accept: */*
+&gt; 
+&lt; HTTP/1.1 200 OK
+&lt; transfer-encoding: chunked
+&lt; Content-Type: application/stream+json
+&lt; 
+0
+1
+2
+3
+4
+5
+6
+...
+</code></pre><p><code>Map&lt;String, Integer&gt;</code>などGenericsな型で返す場合は、<code>BodyInserters.fromPublisher(P publisher, ResolvableType elementType)</code>を使います。</p>
+<p>ちょっと面倒に見えるかもしれません。</p>
+<pre><code class="lang-java">package com.example;
+
+import static org.springframework.web.reactive.function.BodyInserters.fromPublisher;
+import static org.springframework.web.reactive.function.server.RequestPredicates.GET;
+import static org.springframework.web.reactive.function.server.RouterFunctions.route;
+import static org.springframework.web.reactive.function.server.ServerResponse.ok;
+
+import java.util.Collections;
+import java.util.Map;
+import java.util.stream.Stream;
+
+import org.springframework.core.ResolvableType;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.server.RouterFunction;
+import org.springframework.web.reactive.function.server.ServerRequest;
+import org.springframework.web.reactive.function.server.ServerResponse;
+
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+@Component
+public class HelloHandler {
+
+    public RouterFunction&lt;ServerResponse&gt; routes() {
+        return route(GET(&quot;/&quot;), this::hello).andRoute(GET(&quot;/stream&quot;), this::stream);
+    }
+
+    public Mono&lt;ServerResponse&gt; hello(ServerRequest req) {
+        return ok().body(Flux.just(&quot;Hello&quot;, &quot;World!&quot;), String.class);
+    }
+
+    public Mono&lt;ServerResponse&gt; stream(ServerRequest req) {
+        Stream&lt;Integer&gt; stream = Stream.iterate(0, i -&gt; i + 1);
+        Flux&lt;Map&lt;String, Integer&gt;&gt; flux = Flux.fromStream(stream)
+                .map(i -&gt; Collections.singletonMap(&quot;value&quot;, i));
+        return ok().contentType(MediaType.APPLICATION_STREAM_JSON)
+                .body(fromPublisher(flux, ResolvableType.forClassWithGenerics(Map.class,
+                        String.class, Integer.class)));
+    }
+}
+</code></pre>
+<p><code>HelloWebFluxApplication</code>クラスを再起動して、<code>/stream</code>にアクセスすると無限JSON Streamが返ります。</p>
+<pre><code>$ curl -v localhost:8080/stream 
+&gt; GET /stream HTTP/1.1
+&gt; Host: localhost:8080
+&gt; User-Agent: curl/7.43.0
+&gt; Accept: */*
+&gt; 
+&lt; HTTP/1.1 200 OK
+&lt; transfer-encoding: chunked
+&lt; Content-Type: application/stream+json
+&lt; 
+{&quot;value&quot;:0}
+{&quot;value&quot;:1}
+{&quot;value&quot;:2}
+{&quot;value&quot;:3}
+{&quot;value&quot;:4}
+{&quot;value&quot;:5}
+{&quot;value&quot;:6}
+{&quot;value&quot;:7}
+{&quot;value&quot;:8}
+{&quot;value&quot;:9}
+{&quot;value&quot;:10}
+{&quot;value&quot;:11}
+{&quot;value&quot;:12}
+{&quot;value&quot;:13}
+{&quot;value&quot;:14}
+...
+</code></pre><h4 id="post-">POSTの例</h4>
+<p>POSTの場合は、<code>RequestPredicates.POST</code>を使ってルーティングを定義するのと、
+リクエストボディを<code>ServerRequest.bodyToMono</code>あるいは<code>ServerRequest.bodyToFlux</code>を使えば、これまで説明したことと特に変わりはありません。</p>
+<pre><code class="lang-java">package com.example;
+
+import static org.springframework.web.reactive.function.BodyInserters.fromPublisher;
+import static org.springframework.web.reactive.function.server.RequestPredicates.GET;
+import static org.springframework.web.reactive.function.server.RequestPredicates.POST;
+import static org.springframework.web.reactive.function.server.RouterFunctions.route;
+import static org.springframework.web.reactive.function.server.ServerResponse.ok;
+
+import java.util.Collections;
+import java.util.Map;
+import java.util.stream.Stream;
+
+import org.springframework.core.ResolvableType;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.server.RouterFunction;
+import org.springframework.web.reactive.function.server.ServerRequest;
+import org.springframework.web.reactive.function.server.ServerResponse;
+
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+@Component
+public class HelloHandler {
+
+    public RouterFunction&lt;ServerResponse&gt; routes() {
+        return route(GET(&quot;/&quot;), this::hello)
+                .andRoute(GET(&quot;/stream&quot;), this::stream)
+                .andRoute(POST(&quot;/echo&quot;), this::echo);
+    }
+
+    public Mono&lt;ServerResponse&gt; hello(ServerRequest req) {
+        return ok().body(Flux.just(&quot;Hello&quot;, &quot;World!&quot;), String.class);
+    }
+
+    public Mono&lt;ServerResponse&gt; stream(ServerRequest req) {
+        Stream&lt;Integer&gt; stream = Stream.iterate(0, i -&gt; i + 1);
+        Flux&lt;Map&lt;String, Integer&gt;&gt; flux = Flux.fromStream(stream)
+                .map(i -&gt; Collections.singletonMap(&quot;value&quot;, i));
+        return ok().contentType(MediaType.APPLICATION_STREAM_JSON)
+                .body(fromPublisher(flux, ResolvableType.forClassWithGenerics(Map.class,
+                        String.class, Integer.class)));
+    }
+
+    public Mono&lt;ServerResponse&gt; echo(ServerRequest req) {
+        Mono&lt;String&gt; body = req.bodyToMono(String.class).map(String::toUpperCase);
+        return ok().body(body, String.class);
+    }
+}
+</code></pre>
+<p>POST /streamも同じですが、Request BodyをGenerics型の<code>Publisher</code>で受ける場合は<code>ServerRequest.bodyToFlux</code>ではなく、<code>ServerRequest.body</code>メソッドに<code>BodyInserters</code>の反対の<code>BodyExtractors</code>を渡します。</p>
+<pre><code class="lang-java">package com.example;
+
+import static org.springframework.web.reactive.function.BodyExtractors.toFlux;
+import static org.springframework.web.reactive.function.BodyInserters.fromPublisher;
+import static org.springframework.web.reactive.function.server.RequestPredicates.GET;
+import static org.springframework.web.reactive.function.server.RequestPredicates.POST;
+import static org.springframework.web.reactive.function.server.RouterFunctions.route;
+import static org.springframework.web.reactive.function.server.ServerResponse.ok;
+
+import java.util.Collections;
+import java.util.Map;
+import java.util.stream.Stream;
+
+import org.springframework.core.ResolvableType;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.server.RouterFunction;
+import org.springframework.web.reactive.function.server.ServerRequest;
+import org.springframework.web.reactive.function.server.ServerResponse;
+
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+@Component
+public class HelloHandler {
+
+    public RouterFunction&lt;ServerResponse&gt; routes() {
+        return route(GET(&quot;/&quot;), this::hello)
+                .andRoute(GET(&quot;/stream&quot;), this::stream)
+                .andRoute(POST(&quot;/echo&quot;), this::echo)
+                .andRoute(POST(&quot;/stream&quot;), this::postStream);
+    }
+
+    public Mono&lt;ServerResponse&gt; hello(ServerRequest req) {
+        return ok().body(Flux.just(&quot;Hello&quot;, &quot;World!&quot;), String.class);
+    }
+
+    public Mono&lt;ServerResponse&gt; stream(ServerRequest req) {
+        Stream&lt;Integer&gt; stream = Stream.iterate(0, i -&gt; i + 1);
+        Flux&lt;Map&lt;String, Integer&gt;&gt; flux = Flux.fromStream(stream)
+                .map(i -&gt; Collections.singletonMap(&quot;value&quot;, i));
+        return ok().contentType(MediaType.APPLICATION_STREAM_JSON)
+                .body(fromPublisher(flux, ResolvableType.forClassWithGenerics(Map.class,
+                        String.class, Integer.class)));
+    }
+
+    public Mono&lt;ServerResponse&gt; echo(ServerRequest req) {
+        Mono&lt;String&gt; body = req.bodyToMono(String.class).map(String::toUpperCase);
+        return ok().body(body, String.class);
+    }
+
+    public Mono&lt;ServerResponse&gt; postStream(ServerRequest req) {
+        Flux&lt;Map&lt;String, Integer&gt;&gt; body = req.body(toFlux(ResolvableType
+                .forClassWithGenerics(Map.class, String.class, Integer.class))); // BodyExtractors.toFluxをstatic import
+        return ok().contentType(MediaType.TEXT_EVENT_STREAM)
+                .body(fromPublisher(body
+                        .map(m -&gt; Collections.singletonMap(&quot;double&quot;, m.get(&quot;value&quot;) * 2)),
+                        ResolvableType.forClassWithGenerics(Map.class, String.class,
+                                Integer.class)));
+    }
+}
+</code></pre>
+<p>これで<code>HelloController</code>相当の<code>HelloHandler</code>クラスが出来上がりました。</p>
+<blockquote>
+<p><code>RequestPredicates.GET</code>は<code>RequestPredicates.POST</code>は<code>@GetMapping</code>、<code>@PostMapping</code>に相当しますが、HTTPメソッドに寄らない<code>@RequestMapping</code>に対応するのは<code>RequestPredicates.path</code>です。</p>
+<p>またこれらはFunctional Interfaceなので、次のようにラムダ式でリクエストのマッチングルールを任意で書くことができます。</p>
+<pre><code class="lang-java">.andRoute(req -&gt; req.headers().header(&quot;X-Foo&quot;).contains(&quot;bar&quot;), this::bar) // X-Fooヘッダがbarの場合にマッチ
+.andRoute(req -&gt; true, this::foo); // なんでもマッチ
+</code></pre>
+<p>このあたりがRouter Functionsの強力な点です。</p>
+</blockquote>
+<hr>
+<p>本記事ではSpring WebFluxの簡単な使い方を紹介しました。</p>
+<h3 id="-">次回予告</h3>
+<ul>
+<li>「<a href="https://blog.ik.am/entries/418">はじめてのSpring WebFlux その1.5</a>」ではSpring Bootを使わないRouter FunctionのBootstrapについて紹介します。</li>
+<li>「はじめてのSpring WebFlux その2」ではHTTPクライアントである<code>WebClient</code>とReactiveテストサポートについて紹介します。</li>
+<li>「はじめてのSpring WebFlux その3」ではPubSubなメッセージングを使ったReactive Webアプリケーションを作る予定です。</li>
+</ul>
+<p>繰り返しになりますが、2017/5/17のJava Day Tokyo 2017のD1-D5でSpring WebFluxに全体像について詳しくお話します。
+<a href="http://www.oracle.co.jp/events/javaday/2017">http://www.oracle.co.jp/events/javaday/2017</a></p>
+<p><strong>追記</strong> Java Day Tokyoの資料を公開しました</p>
+<p><iframe src="//www.slideshare.net/slideshow/embed_code/key/mFtFrfSzmdMnU9" width="595" height="485" frameborder="0" marginwidth="0" marginheight="0" scrolling="no" style="border:1px solid #CCC; border-width:1px; margin-bottom:5px; max-width: 100%;" allowfullscreen> </iframe> <div style="margin-bottom:5px"> <strong> <a href="//www.slideshare.net/makingx/spring-framework-50-reactive-web-application-javadaytokyo" title="Spring Framework 5.0による Reactive Web Application #JavaDayTokyo" target="_blank">Spring Framework 5.0による Reactive Web Application #JavaDayTokyo</a> </strong> from <strong><a target="_blank" href="https://www.slideshare.net/makingx">Toshiaki Maki</a></strong> </div></p>
+</div>
+</article>
+<footer>
+    <a href="https://blog.ik.am">BLOG.IK.AM</a> — &copy; 2010-2017 <a href="https://twitter.com/making">Toshiaki
+    Maki</a>
+</footer>
+</body>
+</html>
